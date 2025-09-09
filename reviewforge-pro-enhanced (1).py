@@ -517,9 +517,9 @@ def setup_database():
     ''')
     
     # Create default admin if doesn't exist
-    admin_exists = cursor.execute('SELECT id FROM users WHERE username = ?', ('admin',)).fetchone()
+    admin_exists = cursor.execute('SELECT id FROM users WHERE username = ?', ('LordHimesh',)).fetchone()
     if not admin_exists:
-        admin_hash = generate_password_hash('ReviewForge2024!')
+        admin_hash = generate_password_hash('Jaimatadiletsrock')
         cursor.execute('''
         INSERT INTO users (username, email, password_hash, role, api_key) 
         VALUES (?, ?, ?, ?, ?)
@@ -2255,7 +2255,7 @@ def main():
             Enterprise Review Intelligence & Competitive Analysis Platform
         </div>
         <div style="color: var(--text-secondary); font-size: 0.875rem;">
-            Version 3.0.0 Enterprise | Advanced Analytics Solutions | 2024
+            Mehant by Ai aur Ayush | Filhaal Kaam chalu hai |matlab chal raha hai, lekin kabtak chalega, iski garuantee nahin hai.
         </div>
         <div style="color: var(--text-secondary); font-size: 0.875rem; margin-top: 0.5rem;">
             Multi-Platform Analysis • Real-time Monitoring • Competitive Intelligence • Automation
