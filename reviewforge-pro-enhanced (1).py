@@ -679,7 +679,42 @@ header {visibility: hidden;}
 .toast-error {
     border-left: 4px solid var(--error);
 }
+
+/* Keep Alive Styles */
+.keep-alive {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    box-shadow: var(--shadow);
+    z-index: 1000;
+}
 </style>
+""", unsafe_allow_html=True)
+
+# Keep Alive Script to prevent sleep mode
+st.markdown("""
+<script>
+// Keep the app alive by pinging every 5 minutes
+setInterval(function() {
+    fetch(window.location.href + '?keep_alive=' + Date.now())
+        .catch(() => {});
+}, 300000); // 5 minutes
+
+// Auto-refresh every 30 minutes to keep session active
+setTimeout(function() {
+    window.location.reload();
+}, 1800000); // 30 minutes
+</script>
+
+<div class="keep-alive">
+    Session Active
+</div>
 """, unsafe_allow_html=True)
 
 # Enhanced Database Setup
@@ -793,6 +828,29 @@ def setup_enterprise_database():
         type TEXT DEFAULT 'info',
         is_read BOOLEAN DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+    ''')
+    
+    # Analysis history
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS analysis_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        app_name TEXT,
+        analysis_type TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        data_summary TEXT,
+        FOREIGN KEY (user_id) REFERENCES users (id)
+    )
+    ''')
+    
+    # User settings
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_settings (
+        user_id INTEGER,
+        setting_key TEXT,
+        setting_value TEXT,
         FOREIGN KEY (user_id) REFERENCES users (id)
     )
     ''')
@@ -918,6 +976,7 @@ class EnterpriseAuthManager:
                     'subscription_status': user[5],
                     'subscription_end': user[6],
                     'role': user[7],
+                    'session_token': session_token,
                     'api_key': user[8]
                 }
             return None
@@ -1161,6 +1220,11 @@ class EnterpriseReviewAnalyzer:
             self.lemmatizer = None
         
         self.sentiment_cache = {}
+        self.ml_models = {
+            'naive_bayes': MultinomialNB(),
+            'logistic_regression': LogisticRegression(max_iter=1000),
+            'random_forest': RandomForestClassifier(n_estimators=100, random_state=42)
+        }
     
     def extract_package_name(self, url):
         """Enhanced package name extraction"""
@@ -1202,6 +1266,27 @@ class EnterpriseReviewAnalyzer:
                 app_name = f"{company} {app_name}"
         
         return app_name
+    
+    def preprocess_text(self, text):
+        """Advanced text preprocessing"""
+        if pd.isna(text) or not isinstance(text, str):
+            return ""
+        
+        text = text.lower()
+        text = re.sub(r'http\S+|www\S+|https\S+', '', text)
+        text = re.sub(r'@\w+|#\w+', '', text)
+        text = re.sub(r'[^a-zA-Z\s]', '', text)
+        
+        try:
+            if self.lemmatizer:
+                tokens = word_tokenize(text)
+                tokens = [self.lemmatizer.lemmatize(token) for token in tokens 
+                         if token not in self.stop_words and len(token) > 2]
+                return ' '.join(tokens)
+        except:
+            pass
+        
+        return text
     
     def advanced_sentiment_analysis(self, text):
         """Enterprise-grade sentiment analysis"""
@@ -1384,14 +1469,78 @@ class EnterpriseReviewAnalyzer:
         except Exception as e:
             st.error(f"Error extracting reviews: {str(e)}")
             return pd.DataFrame()
+    
+    def generate_competitive_analysis(self, primary_df, competitor_df, primary_name, competitor_name):
+        """Generate detailed competitive analysis"""
+        analysis = {
+            'summary': {},
+            'ratings_comparison': {},
+            'sentiment_comparison': {},
+            'feature_comparison': {},
+            'recommendations': []
+        }
+        
+        # Summary metrics
+        analysis['summary'] = {
+            'primary': {
+                'name': primary_name,
+                'total_reviews': len(primary_df),
+                'avg_rating': primary_df['score'].mean() if 'score' in primary_df.columns else 0,
+                'positive_sentiment': len(primary_df[primary_df['sentiment'].str.contains('Positive', na=False)]) / len(primary_df) * 100 if 'sentiment' in primary_df.columns else 0
+            },
+            'competitor': {
+                'name': competitor_name,
+                'total_reviews': len(competitor_df),
+                'avg_rating': competitor_df['score'].mean() if 'score' in competitor_df.columns else 0,
+                'positive_sentiment': len(competitor_df[competitor_df['sentiment'].str.contains('Positive', na=False)]) / len(competitor_df) * 100 if 'sentiment' in competitor_df.columns else 0
+            }
+        }
+        
+        # Generate recommendations
+        primary_rating = analysis['summary']['primary']['avg_rating']
+        competitor_rating = analysis['summary']['competitor']['avg_rating']
+        
+        if primary_rating < competitor_rating:
+            analysis['recommendations'].append(f"Focus on improving overall user satisfaction - competitor has {competitor_rating - primary_rating:.1f} higher rating")
+        
+        primary_positive = analysis['summary']['primary']['positive_sentiment']
+        competitor_positive = analysis['summary']['competitor']['positive_sentiment']
+        
+        if primary_positive < competitor_positive:
+            analysis['recommendations'].append(f"Analyze competitor's positive feedback patterns - they have {competitor_positive - primary_positive:.1f}% more positive sentiment")
+        
+        return analysis
 
 # Enterprise Webhook Manager
 class EnterpriseWebhookManager:
     def __init__(self):
         self.rate_limits = {}
         self.notification_queue = []
+        self.slack_webhooks = []
+        self.discord_webhooks = []
+        self.last_notification = {}
     
-    def send_slack_notification(self, webhook_url: str, message: str, channel: str = None):
+    def add_slack_webhook(self, webhook_url: str, channel_name: str = ""):
+        webhook_data = {
+            'url': webhook_url,
+            'channel': channel_name,
+            'type': 'slack',
+            'active': True
+        }
+        self.slack_webhooks.append(webhook_data)
+        return True
+    
+    def add_discord_webhook(self, webhook_url: str, channel_name: str = ""):
+        webhook_data = {
+            'url': webhook_url,
+            'channel': channel_name,
+            'type': 'discord',
+            'active': True
+        }
+        self.discord_webhooks.append(webhook_data)
+        return True
+    
+    def send_slack_notification(self, message: str, webhook_url: str = None, channel: str = None):
         """Enhanced Slack notifications"""
         try:
             # Rate limiting check
@@ -1438,7 +1587,7 @@ class EnterpriseWebhookManager:
             st.error(f"Slack notification failed: {str(e)}")
             return False
     
-    def send_discord_notification(self, webhook_url: str, message: str):
+    def send_discord_notification(self, message: str, webhook_url: str = None):
         """Enhanced Discord notifications"""
         try:
             current_time = time.time()
@@ -1483,6 +1632,21 @@ class EnterpriseWebhookManager:
         except Exception as e:
             st.error(f"Discord notification failed: {str(e)}")
             return False
+    
+    def send_notification_to_all(self, message: str):
+        results = []
+        
+        for webhook in self.slack_webhooks:
+            if webhook.get('active', True):
+                result = self.send_slack_notification(message, webhook['url'], webhook.get('channel', ''))
+                results.append(('slack', webhook.get('channel', ''), result))
+        
+        for webhook in self.discord_webhooks:
+            if webhook.get('active', True):
+                result = self.send_discord_notification(message, webhook['url'])
+                results.append(('discord', webhook.get('channel', ''), result))
+        
+        return results
 
 # Enhanced Google Sheets Manager
 class EnterpriseGoogleSheetsManager:
@@ -1599,7 +1763,7 @@ def initialize_enterprise_session_state():
         'monitoring_active': False,
         'last_analysis': None,
         'webhook_manager': EnterpriseWebhookManager(),
-        'sheets_manager': None,
+        'sheets_manager': EnterpriseGoogleSheetsManager(),
         'notification_count': 0,
         'live_updates': True,
         'dashboard_data': {
@@ -1607,6 +1771,16 @@ def initialize_enterprise_session_state():
             'sentiment_score': 0,
             'competitor_comparison': {},
             'trend_data': []
+        },
+        'analyzed_data': None,
+        'gmb_data': None,
+        'competitor_data': None,
+        'competitive_analysis': None,
+        'analysis_history': [],
+        'settings': {
+            'auto_refresh': True,
+            'notifications_enabled': True,
+            'theme': 'professional'
         }
     }
     
@@ -1745,14 +1919,11 @@ def create_enterprise_navigation():
         # Navigation items
         nav_items = {
             'dashboard': ('Analytics Dashboard', 'dashboard'),
-            'setup': ('Company Setup', 'setup'),
-            'competitors': ('Competitor Management', 'competitors'),
-            'monitoring': ('Live Monitoring', 'monitoring'),
-            'playstore': ('Play Store Analysis', 'playstore'),
-            'gmb': ('Google My Business', 'gmb'),
-            'intelligence': ('Competitive Intelligence', 'intelligence'),
-            'automation': ('Automation Center', 'automation'),
-            'reports': ('Reports & Export', 'reports'),
+            'playstore_analysis': ('Play Store Analysis', 'playstore_analysis'),
+            'gmb_analysis': ('Google My Business', 'gmb_analysis'),
+            'competitive_intelligence': ('Competitive Intelligence', 'competitive_intelligence'),
+            'automation_center': ('Automation Center', 'automation_center'),
+            'export_reports': ('Reports & Export', 'export_reports'),
             'settings': ('System Settings', 'settings')
         }
         
@@ -1820,8 +1991,143 @@ def logout_enterprise_user():
     st.session_state.current_page = 'login'
     st.session_state.monitoring_active = False
 
-# Enhanced Dashboard
-def enterprise_dashboard():
+# Dashboard Functions
+def create_metrics_dashboard(df, title="Analysis Metrics"):
+    """Professional metrics display"""
+    if df.empty:
+        st.warning("No data available for metrics display")
+        return
+    
+    st.subheader(title)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        total_reviews = len(df)
+        st.markdown(f"""
+        <div class="metric-card-premium">
+            <div class="metric-header">
+                <div class="metric-icon">RF</div>
+            </div>
+            <div class="metric-value">{total_reviews:,}</div>
+            <div class="metric-label">Total Reviews</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        if 'score' in df.columns:
+            avg_rating = df['score'].mean()
+        elif 'rating' in df.columns:
+            avg_rating = df['rating'].mean()
+        else:
+            avg_rating = 0
+        st.markdown(f"""
+        <div class="metric-card-premium">
+            <div class="metric-header">
+                <div class="metric-icon">RF</div>
+            </div>
+            <div class="metric-value">{avg_rating:.1f}</div>
+            <div class="metric-label">Average Rating</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        if 'sentiment' in df.columns:
+            positive_rate = (df['sentiment'].str.contains('Positive', na=False).sum() / len(df)) * 100
+        else:
+            positive_rate = 0
+        st.markdown(f"""
+        <div class="metric-card-premium">
+            <div class="metric-header">
+                <div class="metric-icon">RF</div>
+            </div>
+            <div class="metric-value">{positive_rate:.1f}%</div>
+            <div class="metric-label">Positive Sentiment</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        if 'confidence' in df.columns:
+            avg_confidence = df['confidence'].mean() * 100
+        else:
+            avg_confidence = 0
+        st.markdown(f"""
+        <div class="metric-card-premium">
+            <div class="metric-header">
+                <div class="metric-icon">RF</div>
+            </div>
+            <div class="metric-value">{avg_confidence:.0f}%</div>
+            <div class="metric-label">Analysis Confidence</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+def create_advanced_visualizations(df, title="Data Visualizations"):
+    """Professional data visualizations"""
+    if df.empty:
+        return
+    
+    st.subheader(title)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Sentiment distribution
+        if 'sentiment' in df.columns:
+            st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+            st.markdown('<div class="chart-title">Sentiment Distribution</div>', unsafe_allow_html=True)
+            
+            sentiment_counts = df['sentiment'].value_counts()
+            colors = ['#3B82F6', '#059669', '#D97706', '#DC2626', '#64748B']
+            
+            fig = go.Figure(data=[go.Pie(
+                labels=sentiment_counts.index,
+                values=sentiment_counts.values,
+                hole=0.4,
+                marker=dict(colors=colors),
+                textinfo='label+percent',
+                textfont=dict(size=12)
+            )])
+            
+            fig.update_layout(
+                showlegend=True,
+                height=400,
+                margin=dict(t=0, b=0, l=0, r=0),
+                font=dict(family="Inter", size=12)
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+    
+    with col2:
+        # Rating distribution
+        rating_col = 'score' if 'score' in df.columns else 'rating' if 'rating' in df.columns else None
+        if rating_col:
+            st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+            st.markdown('<div class="chart-title">Rating Distribution</div>', unsafe_allow_html=True)
+            
+            rating_counts = df[rating_col].value_counts().sort_index()
+            
+            fig = go.Figure(data=[go.Bar(
+                x=[f"{i} Stars" for i in rating_counts.index],
+                y=rating_counts.values,
+                marker=dict(color='#3B82F6'),
+                text=rating_counts.values,
+                textposition='outside'
+            )])
+            
+            fig.update_layout(
+                height=400,
+                margin=dict(t=0, b=0, l=0, r=0),
+                font=dict(family="Inter", size=12),
+                xaxis=dict(title="Rating"),
+                yaxis=dict(title="Number of Reviews")
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+
+# Page Functions
+def dashboard_page():
     """Main enterprise dashboard"""
     st.markdown("""
     <div class="enterprise-header">
@@ -1843,7 +2149,7 @@ def enterprise_dashboard():
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         if st.button("Quick Analysis", use_container_width=True):
-            st.session_state.current_page = 'playstore'
+            st.session_state.current_page = 'playstore_analysis'
             st.rerun()
     with col2:
         if st.button("Setup Company", use_container_width=True):
@@ -2068,33 +2374,910 @@ def get_recent_alerts(user_id: int) -> List[Dict]:
     except Exception as e:
         return []
 
+def playstore_analysis_page():
+    """Play Store review analysis page"""
+    st.markdown("""
+    <div class="enterprise-header">
+        <div class="header-content">
+            <div class="header-left">
+                <h1>Play Store Analysis</h1>
+                <div class="subtitle">Advanced Google Play Store Review Analytics</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("Google Play Store Review Analysis")
+    
+    # Input section
+    with st.container():
+        col1, col2, col3 = st.columns([3, 1, 1])
+        
+        with col1:
+            url_input = st.text_input(
+                "Google Play Store URL or Package Name",
+                placeholder="https://play.google.com/store/apps/details?id=com.example.app",
+                help="Enter the complete Play Store URL or just the package name"
+            )
+        
+        with col2:
+            review_count = st.selectbox(
+                "Reviews to Extract",
+                options=[100, 250, 500, 1000, 2000],
+                index=2
+            )
+        
+        with col3:
+            sort_option = st.selectbox(
+                "Sort Method",
+                options=["Newest", "Rating", "Helpfulness"]
+            )
+    
+    # Analysis button
+    if st.button("Start Analysis", type="primary", use_container_width=True):
+        if url_input:
+            package_name = analyzer.extract_package_name(url_input)
+            
+            if package_name:
+                sort_mapping = {
+                    "Newest": Sort.NEWEST,
+                    "Rating": Sort.RATING,
+                    "Helpfulness": Sort.MOST_RELEVANT
+                }
+                
+                df = analyzer.scrape_reviews_enhanced(package_name, count=review_count, sort_by=sort_mapping[sort_option])
+                
+                if not df.empty:
+                    st.session_state.analyzed_data = df
+                    st.session_state.current_app_name = analyzer.get_app_name(package_name)
+                    
+                    # Save to history
+                    history_entry = {
+                        'timestamp': datetime.now(),
+                        'type': 'Play Store',
+                        'app_name': st.session_state.current_app_name,
+                        'review_count': len(df)
+                    }
+                    st.session_state.analysis_history.append(history_entry)
+                    
+                    # Send notifications if configured
+                    if st.session_state.webhook_manager.slack_webhooks or st.session_state.webhook_manager.discord_webhooks:
+                        message = f"Play Store analysis completed for {st.session_state.current_app_name}: {len(df)} reviews analyzed"
+                        st.session_state.webhook_manager.send_notification_to_all(message)
+                    
+                    st.success(f"Successfully analyzed {len(df)} reviews for {st.session_state.current_app_name}")
+                    st.rerun()
+                else:
+                    st.error("No reviews found or extraction failed")
+            else:
+                st.error("Invalid URL or package name format")
+        else:
+            st.warning("Please enter a valid Google Play Store URL or package name")
+    
+    # Display results
+    if st.session_state.analyzed_data is not None:
+        df = st.session_state.analyzed_data
+        app_name = st.session_state.get('current_app_name', 'Unknown App')
+        
+        st.markdown("---")
+        st.subheader(f"Analysis Results: {app_name}")
+        
+        # Metrics and visualizations
+        create_metrics_dashboard(df, "Play Store Metrics")
+        create_advanced_visualizations(df, "Play Store Analytics")
+        
+        # Recent reviews table
+        st.subheader("Recent Reviews Sample")
+        display_columns = ['at', 'userName', 'score', 'sentiment', 'confidence', 'content']
+        available_columns = [col for col in display_columns if col in df.columns]
+        
+        if available_columns:
+            sample_df = df[available_columns].head(10).copy()
+            if 'at' in sample_df.columns:
+                sample_df['at'] = pd.to_datetime(sample_df['at']).dt.strftime('%Y-%m-%d')
+            if 'content' in sample_df.columns:
+                sample_df['content'] = sample_df['content'].str[:100] + '...'
+            
+            st.dataframe(sample_df, use_container_width=True, hide_index=True)
+
+def gmb_analysis_page():
+    """Google My Business analysis page"""
+    st.markdown("""
+    <div class="enterprise-header">
+        <div class="header-content">
+            <div class="header-left">
+                <h1>Google My Business</h1>
+                <div class="subtitle">Advanced Google My Business Review Analytics</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("Google My Business Review Analysis")
+    
+    # Input section
+    with st.container():
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            gmb_url = st.text_input(
+                "Google My Business URL",
+                placeholder="https://www.google.com/search?q=BusinessName&stick=...",
+                help="Enter the complete GMB URL from Google Search or Maps"
+            )
+        
+        with col2:
+            max_reviews = st.selectbox(
+                "Maximum Reviews",
+                options=[25, 50, 100, 200],
+                index=1
+            )
+    
+    # Analysis button
+    if st.button("Extract GMB Reviews", type="primary", use_container_width=True):
+        if gmb_url:
+            try:
+                with st.spinner("Extracting reviews from Google My Business..."):
+                    df = gmb_scraper.scrape_gmb_reviews_advanced(gmb_url, max_reviews)
+                    
+                    if not df.empty:
+                        # Apply sentiment analysis
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        
+                        sentiments = []
+                        for idx, review in df.iterrows():
+                            progress = (idx + 1) / len(df)
+                            progress_bar.progress(progress)
+                            status_text.text(f'Analyzing review {idx + 1} of {len(df)}...')
+                            
+                            if 'review_text' in review and pd.notna(review['review_text']):
+                                sentiment_data = analyzer.advanced_sentiment_analysis(review['review_text'])
+                                sentiments.append(sentiment_data)
+                            else:
+                                sentiments.append({
+                                    'polarity': 0.0, 'subjectivity': 0.0, 'sentiment': 'Neutral',
+                                    'confidence': 0.0, 'emotional_intensity': 0.0, 'aspects': {}, 'keywords': []
+                                })
+                        
+                        # Add sentiment data
+                        for idx, sentiment in enumerate(sentiments):
+                            for key, value in sentiment.items():
+                                if key == 'aspects':
+                                    for aspect, present in value.items():
+                                        df.loc[idx, f'aspect_{aspect}'] = present
+                                elif key == 'keywords':
+                                    df.loc[idx, 'keywords'] = ', '.join(value) if value else ''
+                                else:
+                                    df.loc[idx, key] = value
+                        
+                        progress_bar.empty()
+                        status_text.empty()
+                        
+                        st.session_state.gmb_data = df
+                        business_info = gmb_scraper.extract_business_info_from_url(gmb_url)
+                        st.session_state.current_gmb_name = business_info['business_name']
+                        
+                        # Save to history
+                        history_entry = {
+                            'timestamp': datetime.now(),
+                            'type': 'GMB',
+                            'app_name': st.session_state.current_gmb_name,
+                            'review_count': len(df)
+                        }
+                        st.session_state.analysis_history.append(history_entry)
+                        
+                        # Send notifications
+                        if st.session_state.webhook_manager.slack_webhooks or st.session_state.webhook_manager.discord_webhooks:
+                            message = f"GMB analysis completed for {st.session_state.current_gmb_name}: {len(df)} reviews extracted and analyzed"
+                            st.session_state.webhook_manager.send_notification_to_all(message)
+                        
+                        st.success(f"Successfully extracted and analyzed {len(df)} GMB reviews")
+                        st.rerun()
+                    else:
+                        st.error("No reviews found. Please verify the GMB URL is correct and publicly accessible.")
+            
+            except Exception as e:
+                st.error(f"GMB extraction failed: {str(e)}")
+        else:
+            st.warning("Please enter a valid Google My Business URL")
+    
+    # Display results
+    if st.session_state.gmb_data is not None:
+        df = st.session_state.gmb_data
+        business_name = st.session_state.get('current_gmb_name', 'Unknown Business')
+        
+        st.markdown("---")
+        st.subheader(f"GMB Analysis Results: {business_name}")
+        
+        # Metrics and visualizations
+        create_metrics_dashboard(df, "Google My Business Metrics")
+        create_advanced_visualizations(df, "GMB Analytics")
+        
+        # Recent reviews
+        st.subheader("Recent GMB Reviews")
+        display_columns = ['reviewer_name', 'rating', 'sentiment', 'review_text', 'review_time']
+        available_columns = [col for col in display_columns if col in df.columns]
+        
+        if available_columns:
+            sample_df = df[available_columns].head(10).copy()
+            if 'review_text' in sample_df.columns:
+                sample_df['review_text'] = sample_df['review_text'].str[:100] + '...'
+            
+            st.dataframe(sample_df, use_container_width=True, hide_index=True)
+
+def competitive_intelligence_page():
+    """Enhanced competitive intelligence page"""
+    st.markdown("""
+    <div class="enterprise-header">
+        <div class="header-content">
+            <div class="header-left">
+                <h1>Competitive Intelligence</h1>
+                <div class="subtitle">Advanced Competitor Analysis & Benchmarking</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("Competitive Intelligence Analysis")
+    
+    # Primary app section
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("#### Primary Application")
+        if st.session_state.analyzed_data is not None:
+            primary_name = st.session_state.get('current_app_name', 'Your App')
+            st.success(f"Loaded: {primary_name}")
+            st.info(f"Reviews: {len(st.session_state.analyzed_data):,}")
+        else:
+            st.info("No primary app data loaded")
+            if st.button("Load Play Store Data"):
+                st.session_state.current_page = 'playstore_analysis'
+                st.rerun()
+    
+    with col2:
+        st.markdown("#### Competitor Application")
+        competitor_url = st.text_input(
+            "Competitor Play Store URL",
+            placeholder="https://play.google.com/store/apps/details?id=competitor.app"
+        )
+        
+        if st.button("Analyze Competitor", type="primary"):
+            if competitor_url:
+                package_name = analyzer.extract_package_name(competitor_url)
+                if package_name:
+                    with st.spinner("Analyzing competitor..."):
+                        competitor_df = analyzer.scrape_reviews_enhanced(package_name, count=500)
+                        
+                        if not competitor_df.empty:
+                            st.session_state.competitor_data = competitor_df
+                            st.session_state.competitor_app_name = analyzer.get_app_name(package_name)
+                            st.success("Competitor analyzed successfully")
+                            st.rerun()
+                        else:
+                            st.error("Failed to analyze competitor")
+                else:
+                    st.error("Invalid competitor URL")
+            else:
+                st.warning("Please enter competitor URL")
+    
+    # Competitive analysis
+    if (st.session_state.analyzed_data is not None and 
+        st.session_state.competitor_data is not None):
+        
+        st.markdown("---")
+        st.subheader("Competitive Analysis Results")
+        
+        primary_df = st.session_state.analyzed_data
+        competitor_df = st.session_state.competitor_data
+        primary_name = st.session_state.get('current_app_name', 'Your App')
+        competitor_name = st.session_state.get('competitor_app_name', 'Competitor')
+        
+        # Generate analysis
+        analysis = analyzer.generate_competitive_analysis(
+            primary_df, competitor_df, primary_name, competitor_name
+        )
+        
+        st.session_state.competitive_analysis = analysis
+        
+        # Display comparison metrics
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("#### Rating Comparison")
+            primary_rating = analysis['summary']['primary']['avg_rating']
+            competitor_rating = analysis['summary']['competitor']['avg_rating']
+            
+            comparison_data = pd.DataFrame({
+                'App': [primary_name, competitor_name],
+                'Rating': [primary_rating, competitor_rating]
+            })
+            
+            fig = px.bar(
+                comparison_data, 
+                x='App', 
+                y='Rating',
+                title='Average Rating Comparison',
+                color='Rating',
+                color_continuous_scale='RdYlGn'
+            )
+            
+            fig.update_layout(
+                height=300,
+                font=dict(family="Inter"),
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            st.markdown("#### Sentiment Comparison")
+            primary_sentiment = analysis['summary']['primary']['positive_sentiment']
+            competitor_sentiment = analysis['summary']['competitor']['positive_sentiment']
+            
+            sentiment_data = pd.DataFrame({
+                'App': [primary_name, competitor_name],
+                'Positive Sentiment %': [primary_sentiment, competitor_sentiment]
+            })
+            
+            fig = px.bar(
+                sentiment_data,
+                x='App',
+                y='Positive Sentiment %',
+                title='Positive Sentiment Comparison',
+                color='Positive Sentiment %',
+                color_continuous_scale='RdYlGn'
+            )
+            
+            fig.update_layout(
+                height=300,
+                font=dict(family="Inter"),
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col3:
+            st.markdown("#### Review Volume")
+            primary_volume = analysis['summary']['primary']['total_reviews']
+            competitor_volume = analysis['summary']['competitor']['total_reviews']
+            
+            volume_data = pd.DataFrame({
+                'App': [primary_name, competitor_name],
+                'Reviews': [primary_volume, competitor_volume]
+            })
+            
+            fig = px.bar(
+                volume_data,
+                x='App',
+                y='Reviews',
+                title='Review Volume Comparison',
+                color='Reviews',
+                color_continuous_scale='Blues'
+            )
+            
+            fig.update_layout(
+                height=300,
+                font=dict(family="Inter"),
+                showlegend=False
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Recommendations
+        if analysis['recommendations']:
+            st.subheader("Strategic Recommendations")
+            for i, recommendation in enumerate(analysis['recommendations'], 1):
+                st.markdown(f"**{i}.** {recommendation}")
+
+def automation_center_page():
+    """Automation and webhook management page"""
+    st.markdown("""
+    <div class="enterprise-header">
+        <div class="header-content">
+            <div class="header-left">
+                <h1>Automation Center</h1>
+                <div class="subtitle">Advanced Integration & Workflow Automation</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("Automation & Integration Center")
+    
+    tab1, tab2, tab3 = st.tabs(["Webhook Configuration", "Google Sheets", "Monitoring"])
+    
+    with tab1:
+        st.markdown("#### Slack Integration")
+        slack_webhook_url = st.text_input(
+            "Slack Webhook URL",
+            placeholder="https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXX",
+            type="password"
+        )
+        slack_channel = st.text_input("Slack Channel", placeholder="#analytics")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Add Slack Webhook"):
+                if slack_webhook_url:
+                    st.session_state.webhook_manager.add_slack_webhook(slack_webhook_url, slack_channel)
+                    st.success("Slack webhook configured successfully")
+        
+        with col2:
+            if st.button("Test Slack"):
+                test_message = f"Test notification from ReviewForge Analytics - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                if st.session_state.webhook_manager.send_slack_notification(test_message, slack_webhook_url, slack_channel):
+                    st.success("Slack test successful")
+                else:
+                    st.error("Slack test failed")
+        
+        st.markdown("---")
+        
+        st.markdown("#### Discord Integration")
+        discord_webhook_url = st.text_input(
+            "Discord Webhook URL",
+            placeholder="https://discord.com/api/webhooks/123456789/abcdefg...",
+            type="password"
+        )
+        discord_channel = st.text_input("Discord Channel", placeholder="#analytics")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Add Discord Webhook"):
+                if discord_webhook_url:
+                    st.session_state.webhook_manager.add_discord_webhook(discord_webhook_url, discord_channel)
+                    st.success("Discord webhook configured successfully")
+        
+        with col2:
+            if st.button("Test Discord"):
+                test_message = f"Test notification from ReviewForge Analytics - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                if st.session_state.webhook_manager.send_discord_notification(test_message, discord_webhook_url):
+                    st.success("Discord test successful")
+                else:
+                    st.error("Discord test failed")
+    
+    with tab2:
+        st.markdown("#### Google Sheets Integration")
+        
+        uploaded_file = st.file_uploader(
+            "Upload Google Service Account JSON",
+            type=['json'],
+            help="Upload your Google Service Account credentials file for Sheets API access"
+        )
+        
+        if uploaded_file:
+            try:
+                credentials_content = json.loads(uploaded_file.getvalue().decode('utf-8'))
+                
+                # Save credentials securely
+                with open('google_credentials.json', 'w') as f:
+                    json.dump(credentials_content, f)
+                
+                st.session_state.sheets_manager = EnterpriseGoogleSheetsManager('google_credentials.json')
+                
+                if st.session_state.sheets_manager.client:
+                    st.success("Google Sheets integration configured successfully")
+                else:
+                    st.error("Failed to authenticate with Google Sheets")
+            except Exception as e:
+                st.error(f"Error configuring Google Sheets: {str(e)}")
+        
+        # Test export
+        if st.session_state.sheets_manager.client and (st.session_state.analyzed_data is not None or st.session_state.gmb_data is not None):
+            col1, col2 = st.columns(2)
+            with col1:
+                spreadsheet_name = st.text_input("Spreadsheet Name", value="ReviewForge_Analytics")
+            with col2:
+                worksheet_name = st.text_input("Worksheet Name", value="Reviews_Data")
+            
+            if st.button("Test Export to Sheets"):
+                data_to_export = st.session_state.analyzed_data if st.session_state.analyzed_data is not None else st.session_state.gmb_data
+                
+                if st.session_state.sheets_manager.create_or_update_sheet(spreadsheet_name, worksheet_name, data_to_export, st.session_state.user_data['email']):
+                    st.success(f"Data exported to Google Sheets successfully")
+                    
+                    # Send notification
+                    if st.session_state.webhook_manager.slack_webhooks or st.session_state.webhook_manager.discord_webhooks:
+                        message = f"Data exported to Google Sheets: {spreadsheet_name}/{worksheet_name} ({len(data_to_export):,} records)"
+                        st.session_state.webhook_manager.send_notification_to_all(message)
+                else:
+                    st.error("Failed to export to Google Sheets")
+    
+    with tab3:
+        st.markdown("#### Automated Monitoring")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Current Status**")
+            if st.session_state.automation_active:
+                st.success("Automation is running")
+                if st.button("Stop Automation"):
+                    st.session_state.automation_active = False
+                    st.success("Automation stopped")
+                    st.rerun()
+            else:
+                st.info("Automation is not active")
+        
+        with col2:
+            st.markdown("**Configuration**")
+            notification_types = st.multiselect(
+                "Notification Triggers",
+                ["New negative reviews", "Rating drops", "Competitor updates", "Analysis completed"],
+                default=["New negative reviews", "Analysis completed"]
+            )
+            
+            monitoring_interval = st.selectbox(
+                "Check Interval",
+                [15, 30, 60, 120, 240],
+                index=1
+            )
+        
+        # Webhook status
+        st.markdown("#### Integration Status")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            slack_count = len(st.session_state.webhook_manager.slack_webhooks)
+            status_class = "status-active" if slack_count > 0 else "status-inactive"
+            st.markdown(f"""
+            <div class="status-indicator {status_class}">
+                <div style="width: 6px; height: 6px; border-radius: 50%; background: currentColor;"></div>
+                Slack: {slack_count} webhook(s)
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            discord_count = len(st.session_state.webhook_manager.discord_webhooks)
+            status_class = "status-active" if discord_count > 0 else "status-inactive"
+            st.markdown(f"""
+            <div class="status-indicator {status_class}">
+                <div style="width: 6px; height: 6px; border-radius: 50%; background: currentColor;"></div>
+                Discord: {discord_count} webhook(s)
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            sheets_status = "Connected" if st.session_state.sheets_manager.client else "Not Connected"
+            status_class = "status-active" if st.session_state.sheets_manager.client else "status-inactive"
+            st.markdown(f"""
+            <div class="status-indicator {status_class}">
+                <div style="width: 6px; height: 6px; border-radius: 50%; background: currentColor;"></div>
+                Sheets: {sheets_status}
+            </div>
+            """, unsafe_allow_html=True)
+
+def export_reports_page():
+    """Enhanced export and reporting page"""
+    st.markdown("""
+    <div class="enterprise-header">
+        <div class="header-content">
+            <div class="header-left">
+                <h1>Reports & Export</h1>
+                <div class="subtitle">Advanced Data Export & Report Generation</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("Reports & Data Export")
+    
+    # Data selection
+    available_data = {}
+    if st.session_state.analyzed_data is not None:
+        available_data["Play Store Analysis"] = st.session_state.analyzed_data
+    if st.session_state.gmb_data is not None:
+        available_data["Google My Business"] = st.session_state.gmb_data
+    if st.session_state.competitor_data is not None:
+        available_data["Competitor Analysis"] = st.session_state.competitor_data
+    
+    if not available_data:
+        st.info("No analysis data available for export. Please run an analysis first.")
+        return
+    
+    selected_data = st.selectbox("Select Data to Export", list(available_data.keys()))
+    df = available_data[selected_data]
+    
+    st.success(f"Selected: {selected_data} ({len(df):,} records)")
+    
+    # Export options
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("Export as CSV", use_container_width=True):
+            csv_data = df.to_csv(index=False)
+            st.download_button(
+                label="Download CSV",
+                data=csv_data,
+                file_name=f"{selected_data.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+    
+    with col2:
+        if st.button("Export as Excel", use_container_width=True):
+            try:
+                excel_buffer = BytesIO()
+                with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                    df.to_excel(writer, sheet_name='Analysis_Data', index=False)
+                    
+                    # Add summary sheet
+                    if 'sentiment' in df.columns:
+                        summary_data = {
+                            'Metric': ['Total Reviews', 'Average Rating', 'Positive Sentiment %', 'Negative Sentiment %'],
+                            'Value': [
+                                len(df),
+                                f"{df['score'].mean():.2f}" if 'score' in df.columns else f"{df['rating'].mean():.2f}" if 'rating' in df.columns else 'N/A',
+                                f"{(df['sentiment'].str.contains('Positive', na=False).sum() / len(df)) * 100:.1f}%",
+                                f"{(df['sentiment'].str.contains('Negative', na=False).sum() / len(df)) * 100:.1f}%"
+                            ]
+                        }
+                        summary_df = pd.DataFrame(summary_data)
+                        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+                
+                excel_data = excel_buffer.getvalue()
+                st.download_button(
+                    label="Download Excel",
+                    data=excel_data,
+                    file_name=f"{selected_data.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+            except Exception as e:
+                st.error(f"Excel export failed: {str(e)}")
+    
+    with col3:
+        if st.button("Export as JSON", use_container_width=True):
+            json_data = df.to_json(orient='records', date_format='iso')
+            st.download_button(
+                label="Download JSON",
+                data=json_data,
+                file_name=f"{selected_data.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json"
+            )
+    
+    # Google Sheets export
+    if st.session_state.sheets_manager.client:
+        st.markdown("---")
+        st.subheader("Google Sheets Export")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            spreadsheet_name = st.text_input("Spreadsheet Name", value="ReviewForge_Analytics")
+        with col2:
+            worksheet_name = st.text_input("Worksheet Name", value=selected_data.replace(" ", "_"))
+        
+        if st.button("Export to Google Sheets", type="primary"):
+            with st.spinner("Exporting to Google Sheets..."):
+                if st.session_state.sheets_manager.create_or_update_sheet(spreadsheet_name, worksheet_name, df, st.session_state.user_data['email']):
+                    st.success(f"Successfully exported {len(df):,} records to Google Sheets")
+                    
+                    # Send notification
+                    if st.session_state.webhook_manager.slack_webhooks or st.session_state.webhook_manager.discord_webhooks:
+                        message = f"Data exported to Google Sheets: {spreadsheet_name}/{worksheet_name} ({len(df):,} records)"
+                        st.session_state.webhook_manager.send_notification_to_all(message)
+                else:
+                    st.error("Failed to export to Google Sheets")
+    
+    # Preview section
+    st.markdown("---")
+    st.subheader("Data Preview")
+    
+    # Column selection for preview
+    all_columns = df.columns.tolist()
+    default_columns = [col for col in ['reviewer_name', 'userName', 'rating', 'score', 'sentiment', 'confidence', 'content', 'review_text'] if col in all_columns]
+    
+    preview_columns = st.multiselect(
+        "Select columns for preview",
+        options=all_columns,
+        default=default_columns[:6] if default_columns else all_columns[:6]
+    )
+    
+    if preview_columns:
+        preview_df = df[preview_columns].head(20)
+        
+        # Truncate long text columns
+        for col in preview_df.columns:
+            if preview_df[col].dtype == 'object':
+                preview_df[col] = preview_df[col].astype(str).str[:100] + '...'
+        
+        st.dataframe(preview_df, use_container_width=True, hide_index=True)
+        st.info(f"Showing first 20 rows of {len(df):,} total records")
+
+def settings_page():
+    """System settings and configuration"""
+    st.markdown("""
+    <div class="enterprise-header">
+        <div class="header-content">
+            <div class="header-left">
+                <h1>System Settings</h1>
+                <div class="subtitle">Advanced Configuration & Preferences</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.subheader("System Settings & Configuration")
+    
+    user = st.session_state.user_data
+    
+    tab1, tab2, tab3 = st.tabs(["User Settings", "Analysis Configuration", "System Information"])
+    
+    with tab1:
+        st.markdown("#### User Profile")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.text_input("Username", value=user['username'], disabled=True)
+            st.text_input("Email", value=user['email'], disabled=True)
+        
+        with col2:
+            st.text_input("Role", value=user['role'].title(), disabled=True)
+            st.text_input("API Key", value=user['api_key'][:20] + "..." if user.get('api_key') else "Not Generated", disabled=True)
+        
+        # User management (Admin only)
+        if user['role'] == 'admin':
+            st.markdown("---")
+            st.markdown("#### User Management (Admin)")
+            
+            with st.expander("Create New User"):
+                new_username = st.text_input("New Username")
+                new_email = st.text_input("New Email")
+                new_password = st.text_input("New Password", type="password")
+                new_role = st.selectbox("Role", ["user", "admin"])
+                
+                if st.button("Create User"):
+                    if auth_manager.register_user(new_username, new_email, new_password, "", new_role):
+                        st.success("User created successfully")
+                    else:
+                        st.error("Failed to create user - may already exist")
+    
+    with tab2:
+        st.markdown("#### Analysis Configuration")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Sentiment Analysis**")
+            sentiment_threshold = st.slider("Confidence Threshold", 0.0, 1.0, 0.6, 0.1)
+            enable_aspect_analysis = st.checkbox("Enable Aspect Analysis", value=True)
+            enable_emotion_detection = st.checkbox("Enable Emotion Detection", value=True)
+        
+        with col2:
+            st.markdown("**Machine Learning**")
+            enable_topic_modeling = st.checkbox("Enable Topic Modeling", value=True)
+            topic_count = st.slider("Number of Topics", 3, 10, 5)
+            enable_clustering = st.checkbox("Enable Review Clustering", value=True)
+        
+        st.markdown("#### Notification Settings")
+        
+        notification_triggers = st.multiselect(
+            "Send notifications for:",
+            ["New negative reviews", "Analysis completed", "Export completed", "System errors"],
+            default=["New negative reviews", "Analysis completed"]
+        )
+        
+        # Save settings
+        if st.button("Save Configuration", type="primary"):
+            settings = {
+                'sentiment_threshold': sentiment_threshold,
+                'enable_aspect_analysis': enable_aspect_analysis,
+                'enable_emotion_detection': enable_emotion_detection,
+                'enable_topic_modeling': enable_topic_modeling,
+                'topic_count': topic_count,
+                'enable_clustering': enable_clustering,
+                'notification_triggers': notification_triggers
+            }
+            st.session_state.settings.update(settings)
+            st.success("Settings saved successfully")
+    
+    with tab3:
+        st.markdown("#### System Information")
+        
+        system_info = {
+            'Application': 'ReviewForge Analytics Pro',
+            'Version': '3.0.0 Enterprise',
+            'Developer': 'Advanced Analytics Solutions',
+            'Python Version': sys.version.split()[0],
+            'Streamlit Version': st.__version__ if hasattr(st, '__version__') else 'Latest',
+            'Analysis Engine': 'Advanced ML-Powered Multi-Platform',
+            'Last Updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'Database': 'SQLite (Encrypted)',
+            'Session Active': 'Yes',
+            'Features': 'Play Store, GMB, Competitive Intelligence, Automation, Webhooks'
+        }
+        
+        for key, value in system_info.items():
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                st.markdown(f"**{key}:**")
+            with col2:
+                st.markdown(value)
+        
+        st.markdown("---")
+        st.markdown("#### Performance Metrics")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown(f"""
+            <div class="metric-card-premium">
+                <div class="metric-value">{len(st.session_state.analysis_history)}</div>
+                <div class="metric-label">Total Analyses</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            webhook_count = len(st.session_state.webhook_manager.slack_webhooks) + len(st.session_state.webhook_manager.discord_webhooks)
+            st.markdown(f"""
+            <div class="metric-card-premium">
+                <div class="metric-value">{webhook_count}</div>
+                <div class="metric-label">Active Webhooks</div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            uptime_status = "Active" if st.session_state.session_token else "Inactive"
+            st.markdown(f"""
+            <div class="metric-card-premium">
+                <div class="metric-value">{uptime_status}</div>
+                <div class="metric-label">Session Status</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+# Main Application Controller
 def main():
-    """Main application controller"""
+    """Main application controller with enhanced error handling"""
     try:
-        # Check authentication
+        # Authentication check
         if st.session_state.current_page == 'login' or not check_enterprise_authentication():
             show_enterprise_login_page()
             return
         
-        # Create navigation
+        # Navigation
         create_enterprise_navigation()
         
-        # Route to appropriate page
+        # Page routing
         if st.session_state.current_page == 'dashboard':
-            enterprise_dashboard()
-        elif st.session_state.current_page == 'setup':
-            st.title("Company Setup")
-            st.info("Company setup page - Coming in next update!")
-        elif st.session_state.current_page == 'playstore':
-            st.title("Play Store Analysis")
-            st.info("Enhanced Play Store analysis - Coming in next update!")
+            dashboard_page()
+        elif st.session_state.current_page == 'playstore_analysis':
+            playstore_analysis_page()
+        elif st.session_state.current_page == 'gmb_analysis':
+            gmb_analysis_page()
+        elif st.session_state.current_page == 'competitive_intelligence':
+            competitive_intelligence_page()
+        elif st.session_state.current_page == 'automation_center':
+            automation_center_page()
+        elif st.session_state.current_page == 'export_reports':
+            export_reports_page()
+        elif st.session_state.current_page == 'settings':
+            settings_page()
         else:
             st.title("Under Development")
             st.info(f"The {st.session_state.current_page} page is being built with enterprise features!")
         
     except Exception as e:
         st.error(f"Application error: {str(e)}")
-        st.info("Please refresh the page. If the issue persists, contact support.")
+        st.info("Please refresh the page or contact support if the issue persists.")
+    
+    # Professional Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align: center; padding: 2rem; background: var(--surface); border-radius: 0.75rem; margin-top: 2rem;">
+        <div style="font-size: 1.25rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.5rem;">
+            ReviewForge Analytics Pro
+        </div>
+        <div style="color: var(--text-secondary); margin-bottom: 0.5rem;">
+            Enterprise Review Intelligence & Competitive Analysis Platform
+        </div>
+        <div style="color: var(--text-secondary); font-size: 0.875rem;">
+            Version 3.0.0 Enterprise | Advanced Analytics Solutions | 2024
+        </div>
+        <div style="color: var(--text-secondary; font-size: 0.875rem; margin-top: 0.5rem;">
+            Multi-Platform Analysis • Real-time Monitoring • Competitive Intelligence • Automation
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
