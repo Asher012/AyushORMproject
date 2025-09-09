@@ -517,9 +517,9 @@ def setup_database():
     ''')
     
     # Create default admin if doesn't exist
-    admin_exists = cursor.execute('SELECT id FROM users WHERE username = ?', ('LordHimesh',)).fetchone()
+    admin_exists = cursor.execute('SELECT id FROM users WHERE username = ?', ('admin',)).fetchone()
     if not admin_exists:
-        admin_hash = generate_password_hash('Jaimatadiletsrock')
+        admin_hash = generate_password_hash('AdminIsAllah')
         cursor.execute('''
         INSERT INTO users (username, email, password_hash, role, api_key) 
         VALUES (?, ?, ?, ?, ?)
