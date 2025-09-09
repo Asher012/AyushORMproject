@@ -8,7 +8,7 @@ google-play-scraper
 textblob
 scikit-learn
 scipy
-networkx>
+networkx
 wordcloud
 nltk
 requests
