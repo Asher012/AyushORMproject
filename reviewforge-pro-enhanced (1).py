@@ -738,9 +738,8 @@ def create_navigation():
     st.markdown(nav_html, unsafe_allow_html=True)
     
     # Handle navigation from URL hash or localStorage
-    params = st.query_params.to_dict()
-if 'hash' in params:
-    hash_page = params['hash']
+if 'hash' in st.query_params:
+    hash_page = st.query_params.get('hash')
     if hash_page in ['dashboard', 'playstore', 'gmb', 'users', 'settings', 'logout']:
         st.session_state.current_page = hash_page
 
