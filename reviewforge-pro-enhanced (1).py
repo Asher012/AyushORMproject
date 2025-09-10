@@ -737,9 +737,10 @@ def create_navigation():
     
     st.markdown(nav_html, unsafe_allow_html=True)
     
-    # Handle navigation from URL hash or localStorage
-if 'hash' in st.query_params:
-    hash_page = st.query_params.get('hash')
+# Handle navigation from URL hash or localStorage
+query_params = st.query_params
+if 'hash' in query_params:
+    hash_page = query_params['hash']
     if hash_page in ['dashboard', 'playstore', 'gmb', 'users', 'settings', 'logout']:
         st.session_state.current_page = hash_page
 
@@ -1469,7 +1470,7 @@ def main():
     """Main application with enhanced error handling and navigation"""
     try:
         # Handle page routing from URL parameters or session state
-        query_params = st.experimental_get_query_params()
+        query_params = st.query_params()
         if 'page' in query_params:
             requested_page = query_params['page'][0]
             if requested_page in ['dashboard', 'playstore', 'gmb', 'users', 'settings', 'logout']:
