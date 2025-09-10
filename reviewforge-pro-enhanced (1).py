@@ -1469,12 +1469,11 @@ def settings_page():
 def main():
     """Main application with enhanced error handling and navigation"""
     try:
-        # Handle page routing from URL parameters or session state
-        query_params = st.query_params()
-        if 'page' in query_params:
-            requested_page = query_params['page'][0]
-            if requested_page in ['dashboard', 'playstore', 'gmb', 'users', 'settings', 'logout']:
-                st.session_state.current_page = requested_page
+       # Handle page routing from URL parameters or session state
+if 'page' in st.query_params:
+    requested_page = st.query_params['page']
+    if requested_page in ['dashboard', 'playstore', 'gmb', 'users', 'settings', 'logout']:
+        st.session_state.current_page = requested_page
         
         # Handle logout
         if st.session_state.current_page == 'logout':
