@@ -1516,3 +1516,80 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Main Application
+def main():
+    """Main application with enhanced error handling and navigation"""
+    try:
+        # Handle page routing from URL parameters or session state
+        if 'page' in st.query_params:
+            requested_page = st.query_params['page']
+            if requested_page in ['dashboard', 'playstore', 'gmb', 'users', 'settings', 'logout']:
+                st.session_state.current_page = requested_page
+        
+        # Handle logout
+        if st.session_state.current_page == 'logout':
+            logout_user()
+            st.query_params.clear()  # Clear URL parameters
+            st.rerun()
+            return
+        
+        # Authentication check
+        if st.session_state.current_page == 'login' or not check_authentication():
+            show_login_page()
+            return
+        
+        # Create navigation
+        create_navigation()
+        create_sidebar_nav()
+        
+        # Route to pages
+        if st.session_state.current_page == 'dashboard':
+            dashboard_page()
+        elif st.session_state.current_page == 'playstore':
+            playstore_analysis_page()
+        elif st.session_state.current_page == 'gmb':
+            gmb_analysis_page()
+        elif st.session_state.current_page == 'users':
+            user_management_page()
+        elif st.session_state.current_page == 'settings':
+            settings_page()
+        else:
+            # Default to dashboard
+            st.session_state.current_page = 'dashboard'
+            st.query_params["page"] = "dashboard"
+            st.rerun()
+        
+    except Exception as e:
+        st.error(f"Application error: {str(e)}")
+        st.info("Please refresh the page. If the issue persists, contact FeedbackForge@outlook.com")
+        
+        # Emergency navigation
+        if st.button("Return to Dashboard"):
+            st.session_state.current_page = 'dashboard'
+            st.query_params["page"] = "dashboard"
+            st.rerun()
+
+# Updated sidebar navigation function
+def create_sidebar_nav():
+    with st.sidebar:
+        st.sidebar.title("Navigation")
+        
+        # सभी navigation buttons के लिए
+        nav_items = [
+            ("Dashboard", "dashboard"),
+            ("Play Store", "playstore"),
+            ("GMB Analysis", "gmb"),
+            ("User Management", "users"),
+            ("Settings", "settings"),
+            ("Logout", "logout")
+        ]
+        
+        for item_name, item_page in nav_items:
+            if st.sidebar.button(item_name):
+                st.session_state.current_page = item_page
+                st.query_params["page"] = item_page
+                st.rerun()
+
+if __name__ == "__main__":
+    main()
