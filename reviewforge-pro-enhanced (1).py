@@ -738,15 +738,11 @@ def create_navigation():
     st.markdown(nav_html, unsafe_allow_html=True)
     
 # Handle navigation from URL hash or localStorage
-query_params = st.query_params
-if 'hash' in query_params:
-    hash_page = query_params['hash']
+if 'hash' in st.query_params:
+    hash_page = st.query_params['hash']
     if hash_page in ['dashboard', 'playstore', 'gmb', 'users', 'settings', 'logout']:
         st.session_state.current_page = hash_page
-        hash_values = st.query_params.get_all('hash')
-if hash_values:
-    hash_page = hash_values[0]  # Get first value
-    # ... rest of your code
+        
 
 def create_sidebar_nav():
     """Alternative sidebar navigation that always works"""
