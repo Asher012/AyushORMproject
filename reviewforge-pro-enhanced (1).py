@@ -1403,7 +1403,7 @@ def show_login():
                 username = st.text_input("Username", placeholder="Enter username")
                 password = st.text_input("Password", type="password", placeholder="Enter password")
                 
-                st.info("🔑 Demo: admin / Ayush123Pro")
+                st.info("")
                 
                 if st.form_submit_button("🚀 Sign In", use_container_width=True):
                     if username and password:
