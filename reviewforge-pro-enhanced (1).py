@@ -330,7 +330,7 @@ def setup_database():
     # Create admin user with secure credentials
     admin_exists = cursor.execute('SELECT id FROM users WHERE username = ?', ('admin',)).fetchone()
     if not admin_exists:
-        admin_hash = generate_password_hash('SecureAdmin2024!')
+        admin_hash = generate_password_hash('Ayush123')
         admin_api_key = secrets.token_urlsafe(32)
         
         cursor.execute('''
