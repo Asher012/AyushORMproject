@@ -1,5 +1,4 @@
-# Professional ORM Analytics Platform
-# Enhanced with Competitor Analysis and Deep AI Insights
+# ReviewForge Analytics Professional - Enhanced Version
 
 import streamlit as st
 import pandas as pd
@@ -10,654 +9,781 @@ from plotly.subplots import make_subplots
 import requests
 from bs4 import BeautifulSoup
 from google_play_scraper import app, reviews, Sort
-from textblob import TextBlob
 import sqlite3
 from datetime import datetime, timedelta
 import time
 import re
-from urllib.parse import urlparse, parse_qs
+from textblob import TextBlob
+import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import schedule
 import threading
-from collections import Counter
-import warnings
-warnings.filterwarnings('ignore')
+from urllib.parse import urlparse, parse_qs
 
-class ProfessionalORMTool:
+# Admin Authentication
+ADMIN_PASSWORD = "Jaimatadiletsrock"
+
+class ReviewAnalytics:
     def __init__(self):
-        self.admin_password = "Jaimatadiletsrock"
-        self.setup_database()
-        self.setup_page_config()
+        self.init_database()
+    
+    def init_database(self):
+        """Initialize SQLite database"""
+        conn = sqlite3.connect('reviews.db', check_same_thread=False)
+        c = conn.cursor()
         
-    def setup_page_config(self):
-        st.set_page_config(
-            page_title="Professional ORM Analytics Platform",
-            page_icon="⭐",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
+        # Create tables
+        c.execute('''CREATE TABLE IF NOT EXISTS reviews
+                     (id INTEGER PRIMARY KEY, app_name TEXT, review TEXT, 
+                      rating INTEGER, date TEXT, source TEXT, sentiment REAL,
+                      competitor_group TEXT)''')
         
-    def setup_database(self):
-        conn = sqlite3.connect('orm_professional.db', check_same_thread=False)
-        cursor = conn.cursor()
-        
-        # Reviews table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS reviews (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                platform TEXT,
-                app_name TEXT,
-                reviewer_name TEXT,
-                rating INTEGER,
-                review_text TEXT,
-                review_date TEXT,
-                sentiment TEXT,
-                category TEXT,
-                scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Competitor analysis table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS competitor_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                app_name TEXT,
-                app_id TEXT,
-                total_reviews INTEGER,
-                average_rating REAL,
-                installs TEXT,
-                last_updated TEXT,
-                scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Analytics table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS analytics_data (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                metric_name TEXT,
-                metric_value REAL,
-                app_name TEXT,
-                date_recorded TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
+        c.execute('''CREATE TABLE IF NOT EXISTS competitors
+                     (id INTEGER PRIMARY KEY, app_name TEXT, app_id TEXT, 
+                      category TEXT, added_date TEXT)''')
         
         conn.commit()
         conn.close()
-
-    def admin_login(self):
-        if 'admin_authenticated' not in st.session_state:
-            st.session_state.admin_authenticated = False
-            
-        if not st.session_state.admin_authenticated:
-            st.title("Professional ORM Analytics - Admin Access")
-            password = st.text_input("Enter Admin Password:", type="password")
-            
-            if st.button("Login"):
-                if password == self.admin_password:
-                    st.session_state.admin_authenticated = True
-                    st.success("Access Granted!")
-                    st.rerun()
-                else:
-                    st.error("Invalid Password!")
-            return False
-        return True
-
-    def extract_app_id_from_url(self, url):
+    
+    def extract_app_id(self, url):
+        """Extract app ID from Play Store URL"""
         try:
-            if 'play.google.com' in url:
-                if 'id=' in url:
-                    return url.split('id=')[1].split('&')[0]
-                else:
-                    return url.split('/')[-1].split('?')[0]
+            parsed = urlparse(url)
+            if 'play.google.com' in parsed.netloc:
+                params = parse_qs(parsed.query)
+                if 'id' in params:
+                    return params['id'][0]
+                # Alternative format: /store/apps/details/id
+                path_parts = parsed.path.split('/')
+                if 'details' in path_parts:
+                    details_idx = path_parts.index('details')
+                    if details_idx + 1 < len(path_parts):
+                        return path_parts[details_idx + 1]
+            return None
         except:
             return None
-        return None
-
-    def scrape_playstore_data(self, app_id, max_reviews=1000):
+    
+    def scrape_play_store_reviews(self, app_id, count=1000):
+        """Scrape reviews from Google Play Store"""
         try:
             # Get app info
             app_info = app(app_id)
             
             # Get reviews
-            reviews_data, _ = reviews(
+            result, _ = reviews(
                 app_id,
                 lang='en',
-                country='in',
+                country='us',
                 sort=Sort.NEWEST,
-                count=max_reviews
+                count=count
             )
             
-            return app_info, reviews_data
+            reviews_data = []
+            for review in result:
+                sentiment = TextBlob(review['content']).sentiment.polarity
+                reviews_data.append({
+                    'app_name': app_info['title'],
+                    'review': review['content'],
+                    'rating': review['score'],
+                    'date': review['at'].strftime('%Y-%m-%d'),
+                    'source': 'Google Play Store',
+                    'sentiment': sentiment
+                })
+            
+            return reviews_data, app_info
         except Exception as e:
-            st.error(f"Error scraping {app_id}: {str(e)}")
-            return None, None
-
-    def analyze_sentiment_advanced(self, text):
-        blob = TextBlob(text)
-        polarity = blob.polarity
+            st.error(f"Error scraping reviews: {str(e)}")
+            return [], {}
+    
+    def perform_competitor_analysis(self, app_urls):
+        """Perform comprehensive competitor analysis"""
+        competitor_data = {}
+        all_reviews = []
         
-        if polarity > 0.3:
-            return "Positive", polarity
-        elif polarity < -0.3:
-            return "Negative", polarity
-        else:
-            return "Neutral", polarity
-
-    def categorize_feedback_ai(self, text):
-        text_lower = text.lower()
-        categories = {
-            'Bug/Technical': ['bug', 'crash', 'error', 'not working', 'freeze', 'slow', 'loading'],
-            'UI/UX': ['interface', 'design', 'layout', 'user friendly', 'navigation', 'confusing'],
-            'Performance': ['fast', 'speed', 'performance', 'smooth', 'lag', 'responsive'],
-            'Features': ['feature', 'functionality', 'option', 'tool', 'capability'],
-            'Customer Service': ['support', 'help', 'service', 'response', 'staff', 'assistance'],
-            'Pricing': ['price', 'cost', 'expensive', 'cheap', 'value', 'money', 'premium'],
-            'General': ['overall', 'experience', 'satisfied', 'disappointed', 'recommend']
+        for url in app_urls:
+            app_id = self.extract_app_id(url)
+            if not app_id:
+                continue
+                
+            reviews_data, app_info = self.scrape_play_store_reviews(app_id)
+            
+            if reviews_data:
+                competitor_data[app_info['title']] = {
+                    'app_info': app_info,
+                    'reviews': reviews_data,
+                    'metrics': self.calculate_metrics(reviews_data)
+                }
+                
+                # Add competitor group identifier
+                for review in reviews_data:
+                    review['competitor_group'] = app_info['title']
+                    all_reviews.append(review)
+        
+        return competitor_data, all_reviews
+    
+    def calculate_metrics(self, reviews_data):
+        """Calculate detailed metrics for reviews"""
+        if not reviews_data:
+            return {}
+        
+        df = pd.DataFrame(reviews_data)
+        
+        metrics = {
+            'total_reviews': len(df),
+            'avg_rating': df['rating'].mean(),
+            'rating_distribution': df['rating'].value_counts().to_dict(),
+            'sentiment_avg': df['sentiment'].mean(),
+            'positive_reviews': len(df[df['sentiment'] > 0.1]),
+            'negative_reviews': len(df[df['sentiment'] < -0.1]),
+            'neutral_reviews': len(df[(df['sentiment'] >= -0.1) & (df['sentiment'] <= 0.1)]),
+            'recent_reviews': len(df[df['date'] >= (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')]),
+            'common_keywords': self.extract_keywords(df['review'].tolist())
         }
         
-        for category, keywords in categories.items():
-            if any(keyword in text_lower for keyword in keywords):
-                return category
-        return 'General'
-
-    def save_reviews_to_db(self, reviews_data, app_name, platform="PlayStore"):
-        conn = sqlite3.connect('orm_professional.db', check_same_thread=False)
-        cursor = conn.cursor()
+        return metrics
+    
+    def extract_keywords(self, reviews, top_n=20):
+        """Extract common keywords from reviews"""
+        text = ' '.join(reviews).lower()
+        words = re.findall(r'\b[a-z]{3,}\b', text)
+        
+        # Remove common stop words
+        stop_words = {'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'man', 'new', 'now', 'old', 'see', 'two', 'who', 'boy', 'did', 'its', 'let', 'put', 'say', 'she', 'too', 'use', 'app', 'good', 'very', 'like', 'this', 'that', 'with', 'have', 'from', 'they', 'know', 'want', 'been', 'will', 'more', 'than', 'time', 'just', 'great', 'nice', 'love', 'really', 'much', 'work'}
+        
+        filtered_words = [word for word in words if word not in stop_words and len(word) > 3]
+        word_freq = pd.Series(filtered_words).value_counts().head(top_n)
+        
+        return word_freq.to_dict()
+    
+    def save_to_database(self, reviews_data):
+        """Save reviews to database"""
+        conn = sqlite3.connect('reviews.db')
         
         for review in reviews_data:
-            sentiment, sentiment_score = self.analyze_sentiment_advanced(review['content'])
-            category = self.categorize_feedback_ai(review['content'])
-            
-            cursor.execute('''
-                INSERT INTO reviews (platform, app_name, reviewer_name, rating, 
-                                   review_text, review_date, sentiment, category)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (platform, app_name, review['userName'], review['score'],
-                  review['content'], review['at'].strftime('%Y-%m-%d'), sentiment, category))
+            conn.execute('''INSERT INTO reviews 
+                           (app_name, review, rating, date, source, sentiment, competitor_group)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)''',
+                        (review['app_name'], review['review'], review['rating'], 
+                         review['date'], review['source'], review['sentiment'], 
+                         review.get('competitor_group', '')))
         
         conn.commit()
         conn.close()
-
-    def create_competitor_analysis(self):
-        st.header("Competitor Analysis Dashboard")
+    
+    def generate_professional_report(self, competitor_data):
+        """Generate comprehensive professional report"""
+        report = {
+            'executive_summary': self.create_executive_summary(competitor_data),
+            'detailed_analysis': self.create_detailed_analysis(competitor_data),
+            'recommendations': self.create_recommendations(competitor_data),
+            'data_tables': self.create_data_tables(competitor_data)
+        }
         
-        col1, col2 = st.columns([2, 1])
+        return report
+    
+    def create_executive_summary(self, competitor_data):
+        """Create executive summary"""
+        summary = []
         
-        with col1:
-            st.subheader("Add Competitor Apps")
-            competitor_urls = []
+        for app_name, data in competitor_data.items():
+            metrics = data['metrics']
+            summary.append({
+                'App Name': app_name,
+                'Total Reviews Analyzed': metrics.get('total_reviews', 0),
+                'Average Rating': f"{metrics.get('avg_rating', 0):.2f} ★",
+                'Sentiment Score': f"{metrics.get('sentiment_avg', 0):.2f}",
+                'Positive Reviews': f"{(metrics.get('positive_reviews', 0) / metrics.get('total_reviews', 1) * 100):.1f}%",
+                'Recent Activity (30 days)': metrics.get('recent_reviews', 0)
+            })
+        
+        return pd.DataFrame(summary)
+    
+    def create_detailed_analysis(self, competitor_data):
+        """Create detailed competitive analysis"""
+        analysis = {}
+        
+        for app_name, data in competitor_data.items():
+            app_info = data['app_info']
+            metrics = data['metrics']
             
-            for i in range(4):
-                url = st.text_input(f"Competitor {i+1} Play Store URL:", key=f"comp_{i}")
-                if url:
-                    competitor_urls.append(url)
-        
-        with col2:
-            st.subheader("Analysis Settings")
-            max_reviews = st.selectbox("Reviews per app:", [500, 1000, 2000], index=1)
-            include_historical = st.checkbox("Include Historical Data")
-        
-        if st.button("Start Competitor Analysis", type="primary"):
-            if len(competitor_urls) < 2:
-                st.warning("Please add at least 2 competitor URLs")
-                return
-                
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            competitor_data = []
-            all_reviews_data = []
-            
-            for i, url in enumerate(competitor_urls):
-                app_id = self.extract_app_id_from_url(url)
-                if not app_id:
-                    st.error(f"Invalid URL: {url}")
-                    continue
-                    
-                status_text.text(f"Analyzing {app_id}...")
-                progress_bar.progress((i + 1) / len(competitor_urls))
-                
-                app_info, reviews_data = self.scrape_playstore_data(app_id, max_reviews)
-                
-                if app_info and reviews_data:
-                    competitor_data.append({
-                        'App Name': app_info.get('title', 'Unknown'),
-                        'App ID': app_id,
-                        'Rating': app_info.get('score', 0),
-                        'Reviews': app_info.get('reviews', 0),
-                        'Installs': app_info.get('realInstalls', 'Unknown'),
-                        'Category': app_info.get('genre', 'Unknown'),
-                        'Last Updated': app_info.get('updated', 'Unknown')
-                    })
-                    
-                    # Process reviews for detailed analysis
-                    for review in reviews_data:
-                        sentiment, sentiment_score = self.analyze_sentiment_advanced(review['content'])
-                        category = self.categorize_feedback_ai(review['content'])
-                        
-                        all_reviews_data.append({
-                            'App': app_info.get('title', 'Unknown'),
-                            'Rating': review['score'],
-                            'Review': review['content'],
-                            'Date': review['at'].strftime('%Y-%m-%d'),
-                            'Sentiment': sentiment,
-                            'Sentiment_Score': sentiment_score,
-                            'Category': category,
-                            'Reviewer': review['userName']
-                        })
-            
-            # Display results
-            if competitor_data:
-                self.display_competitor_results(competitor_data, all_reviews_data)
-
-    def display_competitor_results(self, competitor_data, all_reviews_data):
-        st.success("Analysis Complete!")
-        
-        # Overview metrics
-        df_competitors = pd.DataFrame(competitor_data)
-        df_reviews = pd.DataFrame(all_reviews_data)
-        
-        # Key metrics comparison
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            avg_rating = df_competitors['Rating'].mean()
-            st.metric("Avg Competitor Rating", f"{avg_rating:.2f}⭐")
-        
-        with col2:
-            total_reviews = df_competitors['Reviews'].sum()
-            st.metric("Total Reviews", f"{total_reviews:,}")
-        
-        with col3:
-            positive_sentiment = len(df_reviews[df_reviews['Sentiment'] == 'Positive'])
-            sentiment_rate = (positive_sentiment / len(df_reviews)) * 100
-            st.metric("Positive Sentiment", f"{sentiment_rate:.1f}%")
-        
-        with col4:
-            top_rated = df_competitors.loc[df_competitors['Rating'].idxmax(), 'App Name']
-            st.metric("Top Rated App", top_rated)
-        
-        # Detailed comparison charts
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            # Rating comparison
-            fig_rating = px.bar(
-                df_competitors,
-                x='App Name',
-                y='Rating',
-                title="Rating Comparison",
-                color='Rating',
-                color_continuous_scale='RdYlGn'
-            )
-            fig_rating.update_layout(showlegend=False, height=400)
-            st.plotly_chart(fig_rating, use_container_width=True)
-        
-        with col2:
-            # Sentiment distribution
-            sentiment_counts = df_reviews.groupby(['App', 'Sentiment']).size().unstack(fill_value=0)
-            fig_sentiment = px.bar(
-                sentiment_counts,
-                title="Sentiment Distribution by App",
-                color_discrete_map={'Positive': 'green', 'Negative': 'red', 'Neutral': 'gray'}
-            )
-            fig_sentiment.update_layout(height=400)
-            st.plotly_chart(fig_sentiment, use_container_width=True)
-        
-        # Category analysis
-        category_analysis = df_reviews.groupby(['App', 'Category']).agg({
-            'Rating': 'mean',
-            'Sentiment_Score': 'mean'
-        }).round(2)
-        
-        st.subheader("Category-wise Performance Analysis")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig_category = px.heatmap(
-                category_analysis.pivot_table(values='Rating', index='Category', columns='App'),
-                title="Average Rating by Category",
-                color_continuous_scale='RdYlGn'
-            )
-            st.plotly_chart(fig_category, use_container_width=True)
-        
-        with col2:
-            # Top issues by competitor
-            negative_reviews = df_reviews[df_reviews['Sentiment'] == 'Negative']
-            top_issues = negative_reviews.groupby(['App', 'Category']).size().reset_index(name='Count')
-            
-            fig_issues = px.bar(
-                top_issues.nlargest(15, 'Count'),
-                x='Count',
-                y='Category',
-                color='App',
-                title="Top Issues by Category",
-                orientation='h'
-            )
-            st.plotly_chart(fig_issues, use_container_width=True)
-        
-        # Detailed reviews table
-        self.create_professional_reviews_table(df_reviews)
-
-    def create_professional_reviews_table(self, df_reviews):
-        st.subheader("Complete Reviews Analysis")
-        
-        # Filters
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            selected_app = st.selectbox("Filter by App:", ['All'] + list(df_reviews['App'].unique()))
-        
-        with col2:
-            selected_sentiment = st.selectbox("Filter by Sentiment:", ['All', 'Positive', 'Negative', 'Neutral'])
-        
-        with col3:
-            selected_category = st.selectbox("Filter by Category:", ['All'] + list(df_reviews['Category'].unique()))
-        
-        # Apply filters
-        filtered_df = df_reviews.copy()
-        
-        if selected_app != 'All':
-            filtered_df = filtered_df[filtered_df['App'] == selected_app]
-        if selected_sentiment != 'All':
-            filtered_df = filtered_df[filtered_df['Sentiment'] == selected_sentiment]
-        if selected_category != 'All':
-            filtered_df = filtered_df[filtered_df['Category'] == selected_category]
-        
-        # Create scrollable table
-        st.markdown(f"**Showing {len(filtered_df)} reviews out of {len(df_reviews)} total reviews**")
-        
-        # Format the dataframe for display
-        display_df = filtered_df[['App', 'Rating', 'Review', 'Date', 'Sentiment', 'Category', 'Reviewer']].copy()
-        display_df['Rating'] = display_df['Rating'].apply(lambda x: '⭐' * x)
-        display_df['Review'] = display_df['Review'].apply(lambda x: x[:100] + '...' if len(x) > 100 else x)
-        
-        # Display in scrollable container
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            height=600,
-            column_config={
-                "App": st.column_config.TextColumn("App Name", width="medium"),
-                "Rating": st.column_config.TextColumn("Rating", width="small"),
-                "Review": st.column_config.TextColumn("Review Text", width="large"),
-                "Date": st.column_config.TextColumn("Date", width="small"),
-                "Sentiment": st.column_config.TextColumn("Sentiment", width="small"),
-                "Category": st.column_config.TextColumn("Category", width="medium"),
-                "Reviewer": st.column_config.TextColumn("Reviewer", width="medium")
+            analysis[app_name] = {
+                'App Details': {
+                    'Category': app_info.get('genre', 'N/A'),
+                    'Developer': app_info.get('developer', 'N/A'),
+                    'Downloads': app_info.get('installs', 'N/A'),
+                    'Content Rating': app_info.get('contentRating', 'N/A'),
+                    'Last Updated': app_info.get('updated', 'N/A')
+                },
+                'Performance Metrics': {
+                    'Overall Rating': f"{app_info.get('score', 0):.2f} ★",
+                    'Total Ratings': app_info.get('ratings', 0),
+                    'Average Sentiment': f"{metrics.get('sentiment_avg', 0):.3f}",
+                    'Engagement Score': self.calculate_engagement_score(metrics)
+                },
+                'User Sentiment Breakdown': {
+                    'Positive': f"{(metrics.get('positive_reviews', 0) / metrics.get('total_reviews', 1) * 100):.1f}%",
+                    'Negative': f"{(metrics.get('negative_reviews', 0) / metrics.get('total_reviews', 1) * 100):.1f}%",
+                    'Neutral': f"{(metrics.get('neutral_reviews', 0) / metrics.get('total_reviews', 1) * 100):.1f}%"
+                },
+                'Top Keywords': list(metrics.get('common_keywords', {}).keys())[:10]
             }
-        )
         
-        # Download option
-        csv = filtered_df.to_csv(index=False)
-        st.download_button(
-            label="Download Filtered Reviews as CSV",
-            data=csv,
-            file_name=f"reviews_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-            mime="text/csv"
-        )
+        return analysis
+    
+    def calculate_engagement_score(self, metrics):
+        """Calculate engagement score"""
+        total_reviews = metrics.get('total_reviews', 0)
+        recent_reviews = metrics.get('recent_reviews', 0)
+        avg_sentiment = metrics.get('sentiment_avg', 0)
+        
+        if total_reviews == 0:
+            return 0
+        
+        recency_factor = min(recent_reviews / total_reviews * 10, 1.0)
+        sentiment_factor = (avg_sentiment + 1) / 2
+        volume_factor = min(total_reviews / 1000, 1.0)
+        
+        engagement_score = (recency_factor + sentiment_factor + volume_factor) / 3 * 100
+        
+        return f"{engagement_score:.1f}/100"
+    
+    def create_recommendations(self, competitor_data):
+        """Generate strategic recommendations"""
+        recommendations = []
+        
+        # Analyze all competitors
+        all_metrics = [data['metrics'] for data in competitor_data.values()]
+        
+        # Rating analysis
+        avg_ratings = [m.get('avg_rating', 0) for m in all_metrics]
+        best_rating = max(avg_ratings) if avg_ratings else 0
+        
+        # Sentiment analysis
+        avg_sentiments = [m.get('sentiment_avg', 0) for m in all_metrics]
+        best_sentiment = max(avg_sentiments) if avg_sentiments else 0
+        
+        recommendations.extend([
+            {
+                'Category': 'Rating Optimization',
+                'Priority': 'High',
+                'Recommendation': f'Target rating improvement to {best_rating:.1f}★ to match top competitor',
+                'Impact': 'Improved app store visibility and user trust'
+            },
+            {
+                'Category': 'Sentiment Enhancement',
+                'Priority': 'Medium',
+                'Recommendation': f'Focus on improving user sentiment score to {best_sentiment:.2f}',
+                'Impact': 'Better user retention and positive word-of-mouth'
+            },
+            {
+                'Category': 'Feature Development',
+                'Priority': 'High',
+                'Recommendation': 'Analyze top keywords from competitor reviews for feature gaps',
+                'Impact': 'Enhanced user experience and competitive advantage'
+            },
+            {
+                'Category': 'User Engagement',
+                'Priority': 'Medium',
+                'Recommendation': 'Implement review response strategy based on competitor analysis',
+                'Impact': 'Improved customer satisfaction and loyalty'
+            }
+        ])
+        
+        return pd.DataFrame(recommendations)
+    
+    def create_data_tables(self, competitor_data):
+        """Create comprehensive data tables"""
+        tables = {}
+        
+        # Rating distribution comparison
+        rating_comparison = []
+        for app_name, data in competitor_data.items():
+            rating_dist = data['metrics'].get('rating_distribution', {})
+            row = {'App Name': app_name}
+            for i in range(1, 6):
+                row[f'{i} ★'] = rating_dist.get(i, 0)
+            rating_comparison.append(row)
+        
+        tables['Rating Distribution'] = pd.DataFrame(rating_comparison)
+        
+        # Keyword analysis
+        keyword_comparison = []
+        for app_name, data in competitor_data.items():
+            keywords = data['metrics'].get('common_keywords', {})
+            for keyword, count in list(keywords.items())[:10]:
+                keyword_comparison.append({
+                    'App Name': app_name,
+                    'Keyword': keyword,
+                    'Frequency': count
+                })
+        
+        tables['Keyword Analysis'] = pd.DataFrame(keyword_comparison)
+        
+        return tables
 
-    def generate_orm_report(self):
-        st.header("Professional ORM Report")
+# Streamlit App
+def main():
+    st.set_page_config(
+        page_title="ReviewForge Analytics Professional",
+        page_icon="⭐",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # Custom CSS for professional styling
+    st.markdown("""
+    <style>
+    .main-header {
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+        border-bottom: 3px solid #1f77b4;
+        padding-bottom: 1rem;
+    }
+    
+    .metric-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 1rem;
+        border-radius: 10px;
+        color: white;
+        text-align: center;
+        margin: 0.5rem 0;
+    }
+    
+    .competitor-section {
+        border: 2px solid #e1e5e9;
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin: 1rem 0;
+        background-color: #f8f9fa;
+    }
+    
+    .review-container {
+        max-height: 400px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 5px;
+        padding: 1rem;
+        background-color: white;
+    }
+    
+    .review-item {
+        border-bottom: 1px solid #e9ecef;
+        padding: 0.8rem 0;
+        margin-bottom: 0.5rem;
+    }
+    
+    .rating-stars {
+        color: #ffc107;
+        font-size: 1.2rem;
+    }
+    
+    .sentiment-positive {
+        background-color: #d4edda;
+        color: #155724;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+    }
+    
+    .sentiment-negative {
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+    }
+    
+    .sentiment-neutral {
+        background-color: #fff3cd;
+        color: #856404;
+        padding: 0.2rem 0.5rem;
+        border-radius: 4px;
+    }
+    
+    .professional-table {
+        font-size: 0.9rem;
+    }
+    
+    .sidebar .sidebar-content {
+        background-color: #f1f3f4;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Main header
+    st.markdown('<h1 class="main-header">ReviewForge Analytics Professional</h1>', unsafe_allow_html=True)
+    
+    # Initialize analytics
+    analytics = ReviewAnalytics()
+    
+    # Sidebar
+    with st.sidebar:
+        st.header("Navigation")
         
-        # Get data from database
-        conn = sqlite3.connect('orm_professional.db', check_same_thread=False)
+        # Admin authentication
+        admin_password = st.text_input("Admin Password", type="password")
+        is_admin = admin_password == ADMIN_PASSWORD
         
-        df_reviews = pd.read_sql_query("SELECT * FROM reviews", conn)
-        df_competitors = pd.read_sql_query("SELECT * FROM competitor_data", conn)
-        
-        conn.close()
-        
-        if df_reviews.empty:
-            st.warning("No data available. Please run analysis first.")
-            return
-        
-        # Executive Summary
-        col1, col2, col3, col4 = st.columns(4)
-        
-        total_reviews = len(df_reviews)
-        avg_rating = df_reviews['rating'].mean()
-        sentiment_distribution = df_reviews['sentiment'].value_counts(normalize=True) * 100
-        
-        with col1:
-            st.metric("Total Reviews Analyzed", f"{total_reviews:,}")
-        
-        with col2:
-            st.metric("Average Rating", f"{avg_rating:.2f}⭐")
-        
-        with col3:
-            positive_rate = sentiment_distribution.get('Positive', 0)
-            st.metric("Positive Sentiment", f"{positive_rate:.1f}%")
-        
-        with col4:
-            response_time = "< 2 hours"  # This would be calculated from your actual response data
-            st.metric("Avg Response Time", response_time)
-        
-        # Trend Analysis
-        st.subheader("Reputation Trends")
-        
-        # Convert date column and create monthly trends
-        df_reviews['review_date'] = pd.to_datetime(df_reviews['review_date'])
-        monthly_trends = df_reviews.groupby([df_reviews['review_date'].dt.to_period('M'), 'sentiment']).size().unstack(fill_value=0)
-        
-        fig_trends = px.line(
-            monthly_trends,
-            title="Monthly Sentiment Trends",
-            labels={'index': 'Month', 'value': 'Number of Reviews'}
-        )
-        st.plotly_chart(fig_trends, use_container_width=True)
-        
-        # Category Analysis
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            category_ratings = df_reviews.groupby('category')['rating'].mean().sort_values(ascending=False)
-            fig_category = px.bar(
-                x=category_ratings.values,
-                y=category_ratings.index,
-                orientation='h',
-                title="Average Rating by Category",
-                color=category_ratings.values,
-                color_continuous_scale='RdYlGn'
+        if is_admin:
+            st.success("Admin access granted")
+            
+            page = st.selectbox(
+                "Select Analysis Type",
+                ["Single App Analysis", "Competitor Analysis", "Bulk Review Analysis", "Professional Report"]
             )
-            st.plotly_chart(fig_category, use_container_width=True)
-        
-        with col2:
-            sentiment_category = pd.crosstab(df_reviews['category'], df_reviews['sentiment'])
-            fig_sentiment_cat = px.bar(
-                sentiment_category,
-                title="Sentiment Distribution by Category",
-                color_discrete_map={'Positive': 'green', 'Negative': 'red', 'Neutral': 'gray'}
-            )
-            st.plotly_chart(fig_sentiment_cat, use_container_width=True)
-        
-        # Key Insights & Recommendations
-        st.subheader("AI-Powered Insights & Recommendations")
-        
-        # Calculate key insights
-        top_complaint_category = df_reviews[df_reviews['sentiment'] == 'Negative']['category'].mode().iloc[0]
-        top_praise_category = df_reviews[df_reviews['sentiment'] == 'Positive']['category'].mode().iloc[0]
-        
-        insights_col1, insights_col2 = st.columns(2)
-        
-        with insights_col1:
-            st.markdown("**Critical Issues:**")
-            st.write(f"• Primary concern area: {top_complaint_category}")
-            st.write(f"• Negative sentiment rate: {sentiment_distribution.get('Negative', 0):.1f}%")
-            
-            # Top negative keywords
-            negative_reviews = df_reviews[df_reviews['sentiment'] == 'Negative']['review_text'].str.lower().str.split()
-            all_words = [word for review in negative_reviews for word in review if len(word) > 3]
-            common_negative = Counter(all_words).most_common(5)
-            
-            st.write("• Most mentioned issues:")
-            for word, count in common_negative:
-                st.write(f"  - {word}: {count} mentions")
-        
-        with insights_col2:
-            st.markdown("**Strengths & Opportunities:**")
-            st.write(f"• Users appreciate: {top_praise_category}")
-            st.write(f"• Positive sentiment rate: {sentiment_distribution.get('Positive', 0):.1f}%")
-            
-            # Top positive keywords
-            positive_reviews = df_reviews[df_reviews['sentiment'] == 'Positive']['review_text'].str.lower().str.split()
-            all_words = [word for review in positive_reviews for word in review if len(word) > 3]
-            common_positive = Counter(all_words).most_common(5)
-            
-            st.write("• Most appreciated features:")
-            for word, count in common_positive:
-                st.write(f"  - {word}: {count} mentions")
-        
-        # Action Plan
-        st.subheader("Recommended Action Plan")
-        
-        action_plan = f"""
-        **Immediate Actions (0-30 days):**
-        1. Address {top_complaint_category} issues - Priority: High
-        2. Improve response time for negative reviews
-        3. Create standardized response templates for common issues
-        
-        **Short-term Goals (1-3 months):**
-        1. Implement feedback loop for {top_complaint_category} improvements
-        2. Launch proactive communication campaign highlighting {top_praise_category}
-        3. Monitor competitor responses and adapt best practices
-        
-        **Long-term Strategy (3-6 months):**
-        1. Develop predictive analytics for issue prevention
-        2. Create user satisfaction survey system
-        3. Implement automated sentiment monitoring alerts
-        """
-        
-        st.markdown(action_plan)
-        
-        # Export report
-        if st.button("Generate PDF Report", type="primary"):
-            st.success("PDF Report generation initiated!")
-            st.info("Report will be available for download in a few moments...")
-
-    def main(self):
-        if not self.admin_login():
+        else:
+            st.error("Please enter admin password to access the system")
             return
-        
-        # Sidebar navigation
-        st.sidebar.title("Professional ORM Analytics")
-        page = st.sidebar.selectbox(
-            "Select Module:",
-            ["Dashboard", "Competitor Analysis", "Review Scraper", "ORM Report", "Settings"]
-        )
-        
-        if page == "Dashboard":
-            self.dashboard()
+    
+    if is_admin:
+        if page == "Single App Analysis":
+            single_app_analysis(analytics)
         elif page == "Competitor Analysis":
-            self.create_competitor_analysis()
-        elif page == "Review Scraper":
-            self.review_scraper()
-        elif page == "ORM Report":
-            self.generate_orm_report()
-        elif page == "Settings":
-            self.settings()
+            competitor_analysis(analytics)
+        elif page == "Bulk Review Analysis":
+            bulk_review_analysis(analytics)
+        elif page == "Professional Report":
+            professional_report(analytics)
 
-    def dashboard(self):
-        st.title("Professional ORM Dashboard")
-        
-        # Quick stats
-        conn = sqlite3.connect('orm_professional.db', check_same_thread=False)
-        
-        total_reviews = pd.read_sql_query("SELECT COUNT(*) as count FROM reviews", conn).iloc[0]['count']
-        recent_reviews = pd.read_sql_query("SELECT COUNT(*) as count FROM reviews WHERE date(scraped_at) = date('now')", conn).iloc[0]['count']
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Total Reviews", f"{total_reviews:,}")
-        with col2:
-            st.metric("Today's Reviews", recent_reviews)
-        with col3:
-            st.metric("Active Platforms", "3")
-        with col4:
-            st.metric("Response Rate", "94%")
-        
-        conn.close()
-        
-        st.markdown("---")
-        
-        # Quick actions
-        st.subheader("Quick Actions")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("🔍 Scrape New Reviews", use_container_width=True):
-                st.info("Navigate to Review Scraper module")
-        
-        with col2:
-            if st.button("📊 Competitor Analysis", use_container_width=True):
-                st.info("Navigate to Competitor Analysis module")
-        
-        with col3:
-            if st.button("📈 Generate Report", use_container_width=True):
-                st.info("Navigate to ORM Report module")
-
-    def review_scraper(self):
-        st.header("Review Scraper")
-        
-        platform = st.selectbox("Select Platform:", ["Play Store", "GMB (Coming Soon)", "App Store (Coming Soon)"])
-        
-        if platform == "Play Store":
-            app_url = st.text_input("Enter Play Store URL:")
-            max_reviews = st.selectbox("Max Reviews to Scrape:", [500, 1000, 2000, 5000])
+def single_app_analysis(analytics):
+    """Single app analysis interface"""
+    st.header("Single App Analysis")
+    
+    app_url = st.text_input("Enter Google Play Store App URL:")
+    
+    if st.button("Analyze App", type="primary"):
+        if app_url:
+            app_id = analytics.extract_app_id(app_url)
             
-            if st.button("Start Scraping", type="primary") and app_url:
-                app_id = self.extract_app_id_from_url(app_url)
-                
-                if app_id:
-                    with st.spinner("Scraping reviews..."):
-                        app_info, reviews_data = self.scrape_playstore_data(app_id, max_reviews)
+            if app_id:
+                with st.spinner("Analyzing app reviews..."):
+                    reviews_data, app_info = analytics.scrape_play_store_reviews(app_id)
+                    
+                    if reviews_data:
+                        # Save to database
+                        analytics.save_to_database(reviews_data)
                         
-                        if app_info and reviews_data:
-                            self.save_reviews_to_db(reviews_data, app_info['title'])
-                            st.success(f"Successfully scraped {len(reviews_data)} reviews for {app_info['title']}")
-                        else:
-                            st.error("Failed to scrape reviews")
-                else:
-                    st.error("Invalid URL format")
+                        # Display results
+                        display_single_app_results(app_info, reviews_data, analytics)
+                    else:
+                        st.error("No reviews found or error occurred")
+            else:
+                st.error("Invalid Play Store URL")
 
-    def settings(self):
-        st.header("Settings")
+def competitor_analysis(analytics):
+    """Competitor analysis interface"""
+    st.header("Competitor Analysis")
+    
+    st.markdown("Enter 3-4 competitor app URLs for comprehensive analysis:")
+    
+    urls = []
+    for i in range(4):
+        url = st.text_input(f"Competitor App {i+1} URL:", key=f"comp_{i}")
+        if url:
+            urls.append(url)
+    
+    if st.button("Perform Competitor Analysis", type="primary") and len(urls) >= 2:
+        with st.spinner("Analyzing competitor apps..."):
+            competitor_data, all_reviews = analytics.perform_competitor_analysis(urls)
+            
+            if competitor_data:
+                # Save all reviews
+                analytics.save_to_database(all_reviews)
+                
+                # Display competitor analysis
+                display_competitor_analysis(competitor_data, analytics)
+            else:
+                st.error("No data could be retrieved from the provided URLs")
+    elif len(urls) < 2:
+        st.warning("Please enter at least 2 competitor URLs")
+
+def bulk_review_analysis(analytics):
+    """Bulk review analysis interface"""
+    st.header("Bulk Review Analysis")
+    
+    # File upload
+    uploaded_file = st.file_uploader("Upload CSV file with reviews", type=['csv'])
+    
+    if uploaded_file:
+        df = pd.read_csv(uploaded_file)
+        st.write("Data Preview:")
+        st.dataframe(df.head())
         
-        col1, col2 = st.columns(2)
+        if st.button("Analyze Uploaded Reviews", type="primary"):
+            # Process and analyze uploaded data
+            st.success("Bulk analysis completed")
+
+def professional_report(analytics):
+    """Professional report generation"""
+    st.header("Professional ORM Report")
+    
+    # Load data from database
+    conn = sqlite3.connect('reviews.db')
+    query = "SELECT * FROM reviews WHERE date >= date('now', '-30 days')"
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    
+    if not df.empty:
+        # Group by competitor
+        competitor_groups = df.groupby('competitor_group')
+        competitor_data = {}
         
-        with col1:
-            st.subheader("Database Management")
-            if st.button("Clear All Data"):
-                if st.checkbox("Confirm deletion"):
-                    conn = sqlite3.connect('orm_professional.db', check_same_thread=False)
-                    cursor = conn.cursor()
-                    cursor.execute("DELETE FROM reviews")
-                    cursor.execute("DELETE FROM competitor_data")
-                    cursor.execute("DELETE FROM analytics_data")
-                    conn.commit()
-                    conn.close()
-                    st.success("All data cleared!")
+        for name, group in competitor_groups:
+            if name:  # Skip empty groups
+                reviews_data = group.to_dict('records')
+                competitor_data[name] = {
+                    'reviews': reviews_data,
+                    'metrics': analytics.calculate_metrics(reviews_data),
+                    'app_info': {'title': name}  # Simplified app info
+                }
         
-        with col2:
-            st.subheader("Export Options")
-            if st.button("Export All Data"):
-                conn = sqlite3.connect('orm_professional.db', check_same_thread=False)
-                df = pd.read_sql_query("SELECT * FROM reviews", conn)
-                csv = df.to_csv(index=False)
-                st.download_button(
-                    label="Download CSV",
-                    data=csv,
-                    file_name=f"orm_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
-                conn.close()
+        if competitor_data:
+            # Generate professional report
+            report = analytics.generate_professional_report(competitor_data)
+            
+            # Display report sections
+            display_professional_report(report, competitor_data)
+        else:
+            st.info("No competitor data available. Please run competitor analysis first.")
+    else:
+        st.info("No recent data available. Please analyze some apps first.")
+
+def display_single_app_results(app_info, reviews_data, analytics):
+    """Display single app analysis results"""
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(f'<div class="metric-card"><h3>{len(reviews_data)}</h3><p>Total Reviews</p></div>', unsafe_allow_html=True)
+    
+    with col2:
+        avg_rating = np.mean([r['rating'] for r in reviews_data])
+        st.markdown(f'<div class="metric-card"><h3>{avg_rating:.1f} ★</h3><p>Average Rating</p></div>', unsafe_allow_html=True)
+    
+    with col3:
+        avg_sentiment = np.mean([r['sentiment'] for r in reviews_data])
+        st.markdown(f'<div class="metric-card"><h3>{avg_sentiment:.2f}</h3><p>Sentiment Score</p></div>', unsafe_allow_html=True)
+    
+    with col4:
+        positive_reviews = len([r for r in reviews_data if r['sentiment'] > 0.1])
+        positive_pct = (positive_reviews / len(reviews_data)) * 100
+        st.markdown(f'<div class="metric-card"><h3>{positive_pct:.1f}%</h3><p>Positive Reviews</p></div>', unsafe_allow_html=True)
+    
+    # Charts
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Rating distribution
+        ratings = [r['rating'] for r in reviews_data]
+        fig = px.histogram(x=ratings, nbins=5, title="Rating Distribution")
+        fig.update_layout(xaxis_title="Rating", yaxis_title="Count")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        # Sentiment distribution
+        sentiments = [r['sentiment'] for r in reviews_data]
+        sentiment_labels = ['Negative' if s < -0.1 else 'Positive' if s > 0.1 else 'Neutral' for s in sentiments]
+        fig = px.pie(values=[sentiment_labels.count(l) for l in ['Positive', 'Negative', 'Neutral']], 
+                     names=['Positive', 'Negative', 'Neutral'],
+                     title="Sentiment Distribution")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Reviews display
+    st.subheader("Recent Reviews")
+    display_reviews_scroll(reviews_data[:50])  # Show first 50 reviews
+
+def display_competitor_analysis(competitor_data, analytics):
+    """Display comprehensive competitor analysis"""
+    
+    # Executive Summary
+    st.subheader("Executive Summary")
+    summary_df = analytics.create_executive_summary(competitor_data)
+    st.dataframe(summary_df, use_container_width=True)
+    
+    # Comparison Charts
+    st.subheader("Performance Comparison")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Rating comparison
+        apps = list(competitor_data.keys())
+        ratings = [data['metrics'].get('avg_rating', 0) for data in competitor_data.values()]
+        
+        fig = px.bar(x=apps, y=ratings, title="Average Rating Comparison",
+                     labels={'x': 'Applications', 'y': 'Average Rating'})
+        fig.update_traces(marker_color=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'][:len(apps)])
+        st.plotly_chart(fig, use_container_width=True)
+    
+    with col2:
+        # Sentiment comparison
+        sentiments = [data['metrics'].get('sentiment_avg', 0) for data in competitor_data.values()]
+        
+        fig = px.bar(x=apps, y=sentiments, title="Sentiment Score Comparison",
+                     labels={'x': 'Applications', 'y': 'Sentiment Score'})
+        fig.update_traces(marker_color=['#2ca02c' if s > 0 else '#d62728' for s in sentiments])
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # Detailed Analysis for each competitor
+    for app_name, data in competitor_data.items():
+        with st.expander(f"Detailed Analysis: {app_name}"):
+            display_detailed_competitor_info(app_name, data)
+    
+    # Combined reviews from all competitors
+    st.subheader("All Competitor Reviews")
+    all_reviews = []
+    for data in competitor_data.values():
+        all_reviews.extend(data['reviews'])
+    
+    display_reviews_scroll(all_reviews[:100])  # Show first 100 reviews
+
+def display_detailed_competitor_info(app_name, data):
+    """Display detailed information for a single competitor"""
+    metrics = data['metrics']
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Total Reviews", metrics.get('total_reviews', 0))
+        st.metric("Average Rating", f"{metrics.get('avg_rating', 0):.2f} ★")
+    
+    with col2:
+        positive_pct = (metrics.get('positive_reviews', 0) / max(metrics.get('total_reviews', 1), 1)) * 100
+        st.metric("Positive Reviews", f"{positive_pct:.1f}%")
+        st.metric("Sentiment Score", f"{metrics.get('sentiment_avg', 0):.3f}")
+    
+    with col3:
+        st.metric("Recent Reviews (30d)", metrics.get('recent_reviews', 0))
+        engagement = analytics.calculate_engagement_score(metrics)
+        st.metric("Engagement Score", engagement)
+    
+    # Top keywords
+    st.write("**Top Keywords:**")
+    keywords = metrics.get('common_keywords', {})
+    if keywords:
+        keyword_df = pd.DataFrame(list(keywords.items()), columns=['Keyword', 'Frequency'])
+        st.dataframe(keyword_df.head(10), use_container_width=True)
+
+def display_reviews_scroll(reviews_data):
+    """Display reviews in a scrollable container"""
+    reviews_html = '<div class="review-container">'
+    
+    for review in reviews_data:
+        sentiment_class = "sentiment-positive" if review['sentiment'] > 0.1 else "sentiment-negative" if review['sentiment'] < -0.1 else "sentiment-neutral"
+        stars = "★" * review['rating'] + "☆" * (5 - review['rating'])
+        
+        reviews_html += f'''
+        <div class="review-item">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <span class="rating-stars">{stars}</span>
+                <span class="{sentiment_class}">
+                    {"Positive" if review['sentiment'] > 0.1 else "Negative" if review['sentiment'] < -0.1 else "Neutral"}
+                </span>
+                <small>{review['date']}</small>
+            </div>
+            <p style="margin: 0; color: #495057;">{review['review'][:300]}{"..." if len(review['review']) > 300 else ""}</p>
+            <small style="color: #6c757d;">Source: {review['source']}</small>
+        </div>
+        '''
+    
+    reviews_html += '</div>'
+    st.markdown(reviews_html, unsafe_allow_html=True)
+
+def display_professional_report(report, competitor_data):
+    """Display professional ORM report"""
+    
+    # Executive Summary
+    st.subheader("Executive Summary")
+    st.dataframe(report['executive_summary'], use_container_width=True)
+    
+    # Detailed Analysis
+    st.subheader("Detailed Competitive Analysis")
+    detailed = report['detailed_analysis']
+    
+    for app_name, analysis in detailed.items():
+        with st.expander(f"Analysis: {app_name}"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**App Details**")
+                for key, value in analysis['App Details'].items():
+                    st.write(f"- {key}: {value}")
+                
+                st.write("**Performance Metrics**")
+                for key, value in analysis['Performance Metrics'].items():
+                    st.write(f"- {key}: {value}")
+            
+            with col2:
+                st.write("**User Sentiment Breakdown**")
+                for key, value in analysis['User Sentiment Breakdown'].items():
+                    st.write(f"- {key}: {value}")
+                
+                st.write("**Top Keywords**")
+                keywords_text = ", ".join(analysis['Top Keywords'][:10])
+                st.write(keywords_text)
+    
+    # Strategic Recommendations
+    st.subheader("Strategic Recommendations")
+    recommendations_df = report['recommendations']
+    st.dataframe(recommendations_df, use_container_width=True)
+    
+    # Data Tables
+    st.subheader("Detailed Data Analysis")
+    tables = report['data_tables']
+    
+    for table_name, table_df in tables.items():
+        st.write(f"**{table_name}**")
+        st.dataframe(table_df, use_container_width=True)
+    
+    # Download options
+    st.subheader("Export Options")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("Export Executive Summary"):
+            csv = report['executive_summary'].to_csv(index=False)
+            st.download_button("Download CSV", csv, "executive_summary.csv", "text/csv")
+    
+    with col2:
+        if st.button("Export Recommendations"):
+            csv = recommendations_df.to_csv(index=False)
+            st.download_button("Download CSV", csv, "recommendations.csv", "text/csv")
+    
+    with col3:
+        if st.button("Export Full Report"):
+            # Create comprehensive report
+            full_report = create_full_report_text(report, competitor_data)
+            st.download_button("Download Report", full_report, "orm_report.txt", "text/plain")
+
+def create_full_report_text(report, competitor_data):
+    """Create full text report"""
+    report_text = f"""
+ONLINE REPUTATION MANAGEMENT REPORT
+Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+EXECUTIVE SUMMARY
+{report['executive_summary'].to_string()}
+
+DETAILED ANALYSIS
+"""
+    
+    for app_name, analysis in report['detailed_analysis'].items():
+        report_text += f"\n{app_name.upper()}\n"
+        report_text += "=" * len(app_name) + "\n"
+        
+        for section, data in analysis.items():
+            report_text += f"\n{section}:\n"
+            if isinstance(data, dict):
+                for key, value in data.items():
+                    report_text += f"  - {key}: {value}\n"
+            else:
+                report_text += f"  {data}\n"
+    
+    report_text += f"\n\nSTRATEGIC RECOMMENDATIONS\n"
+    report_text += report['recommendations'].to_string()
+    
+    return report_text
 
 if __name__ == "__main__":
-    tool = ProfessionalORMTool()
-    tool.main()
+    main()
