@@ -3,2010 +3,1620 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import requests
-from bs4 import BeautifulSoup
-import time
-import json
-import sqlite3
-import secrets
-import hashlib
-from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, timedelta
-from google_play_scraper import Sort, reviews
+from plotly.subplots import make_subplots
+import seaborn as sns
+import matplotlib.pyplot as plt
+from google_play_scraper import Sort, reviews, search
 from textblob import TextBlob
+from datetime import datetime, timedelta
 import re
-from collections import Counter
+from collections import Counter, defaultdict
+import json
+import base64
 from io import BytesIO
-import random
-from urllib.parse import unquote, quote, urlparse
+import time
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn.decomposition import LatentDirichletAllocation, PCA
+from sklearn.model_selection import cross_val_score
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.preprocessing import StandardScaler
+from scipy import stats
+from scipy.spatial.distance import cosine
+import networkx as nx
+from wordcloud import WordCloud
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
 import warnings
+import asyncio
+import aiohttp
+import concurrent.futures
+from functools import lru_cache
+import holidays
+import pytz
+from dateutil import parser
 warnings.filterwarnings('ignore')
 
-# PROFESSIONAL CONFIGURATION
+# Download required NLTK data
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
+try:
+    nltk.data.find('corpora/stopwords')
+except LookupError:
+    nltk.download('stopwords')
+try:
+    nltk.data.find('corpora/wordnet')
+except LookupError:
+    nltk.download('wordnet')
+
+# Advanced Page Configuration
 st.set_page_config(
-    page_title="ReviewForge Analytics Pro - Advanced Review Intelligence Platform",
-    page_icon="📊",
+    page_title="ReviewForge Analytics Pro",
+    page_icon=None,
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': "ReviewForge Analytics Pro - Advanced Review Analysis Platform"
+    }
 )
 
-# PROFESSIONAL CSS - COMPLETE DESIGN SYSTEM
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+# Advanced CSS Styling with Modern Design
+def apply_advanced_styling():
+    st.markdown("""
+    <style>
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-:root {
-    --primary: #2563EB;
-    --primary-dark: #1E40AF;
-    --secondary: #64748B;
-    --success: #10B981;
-    --warning: #F59E0B;
-    --error: #EF4444;
-    --background: #FAFAFA;
-    --surface: #FFFFFF;
-    --border: #E5E7EB;
-    --text-primary: #111827;
-    --text-secondary: #6B7280;
-    --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-    --radius: 8px;
-}
-
-* {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-.main {
-    background: var(--background);
-}
-
-.block-container {
-    padding-top: 1rem;
-    max-width: 1600px;
-}
-
-/* PROFESSIONAL HEADER */
-.app-header {
-    background: linear-gradient(135deg, var(--primary), var(--primary-dark), #1e3a8a);
-    color: white;
-    padding: 2.5rem;
-    border-radius: var(--radius);
-    margin-bottom: 2rem;
-    box-shadow: var(--shadow-lg);
-    position: relative;
-    overflow: hidden;
-}
-
-.app-header::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: radial-gradient(circle at 30% 50%, rgba(255,255,255,0.1) 0%, transparent 50%);
-    opacity: 0.3;
-}
-
-.header-title {
-    font-size: 2.75rem;
-    font-weight: 800;
-    margin: 0 0 0.5rem 0;
-    letter-spacing: -0.025em;
-    position: relative;
-    z-index: 1;
-}
-
-.header-subtitle {
-    font-size: 1.2rem;
-    opacity: 0.95;
-    margin: 0;
-    position: relative;
-    z-index: 1;
-    font-weight: 500;
-}
-
-/* PROFESSIONAL DATA SHEET DISPLAY */
-.professional-sheet {
-    background: var(--surface);
-    border: 2px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    box-shadow: var(--shadow-lg);
-    margin: 1.5rem 0;
-}
-
-.sheet-toolbar {
-    background: linear-gradient(135deg, #f8fafc, #e2e8f0);
-    padding: 1rem;
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.sheet-title {
-    font-weight: 700;
-    color: var(--text-primary);
-    font-size: 1.1rem;
-}
-
-.sheet-header {
-    background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
-    padding: 0.75rem 1rem;
-    border-bottom: 2px solid var(--border);
-    font-weight: 600;
-    color: var(--text-primary);
-    display: grid;
-    grid-template-columns: 50px 120px 80px 1fr 120px 120px 80px;
-    gap: 1rem;
-    align-items: center;
-    font-size: 0.875rem;
-}
-
-.sheet-content {
-    max-height: 600px;
-    overflow-y: auto;
-    background: var(--surface);
-}
-
-.sheet-row {
-    display: grid;
-    grid-template-columns: 50px 120px 80px 1fr 120px 120px 80px;
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid #f1f5f9;
-    align-items: start;
-    gap: 1rem;
-    transition: all 0.2s ease;
-    font-size: 0.875rem;
-    min-height: 60px;
-}
-
-.sheet-row:hover {
-    background: #f8fafc;
-    transform: translateX(2px);
-    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.1);
-}
-
-.sheet-row:nth-child(even) {
-    background: rgba(248, 250, 252, 0.3);
-}
-
-.row-number {
-    font-weight: 600;
-    color: var(--secondary);
-    text-align: center;
-    background: rgba(37, 99, 235, 0.1);
-    border-radius: 4px;
-    padding: 0.25rem;
-    font-size: 0.75rem;
-}
-
-.reviewer-cell {
-    font-weight: 500;
-    color: var(--text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.rating-cell {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.rating-stars {
-    color: #fbbf24;
-    font-weight: 700;
-    font-size: 1rem;
-}
-
-.rating-number {
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: 0.875rem;
-}
-
-.review-content-cell {
-    font-size: 0.875rem;
-    line-height: 1.5;
-    color: var(--text-secondary);
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    cursor: pointer;
-    padding: 0.25rem;
-    border-radius: 4px;
-    transition: all 0.2s ease;
-    max-height: 4.5em;
-}
-
-.review-content-cell:hover {
-    background: rgba(37, 99, 235, 0.05);
-    color: var(--text-primary);
-    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.2);
-    max-height: none;
-    -webkit-line-clamp: unset;
-}
-
-.sentiment-cell {
-    text-align: center;
-}
-
-.sentiment-positive {
-    background: linear-gradient(135deg, #ecfdf5, #d1fae5);
-    color: #065f46;
-    padding: 0.35rem 0.75rem;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.75rem;
-    border: 1px solid #a7f3d0;
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
-}
-
-.sentiment-negative {
-    background: linear-gradient(135deg, #fef2f2, #fecaca);
-    color: #991b1b;
-    padding: 0.35rem 0.75rem;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.75rem;
-    border: 1px solid #fca5a5;
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
-}
-
-.sentiment-neutral {
-    background: linear-gradient(135deg, #f8fafc, #e2e8f0);
-    color: #475569;
-    padding: 0.35rem 0.75rem;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 0.75rem;
-    border: 1px solid #cbd5e1;
-    text-transform: uppercase;
-    letter-spacing: 0.025em;
-}
-
-.confidence-cell {
-    text-align: center;
-}
-
-.confidence-bar-container {
-    width: 100%;
-    height: 8px;
-    background: #e5e7eb;
-    border-radius: 4px;
-    overflow: hidden;
-    margin-bottom: 0.25rem;
-}
-
-.confidence-bar {
-    height: 100%;
-    background: linear-gradient(90deg, var(--error), var(--warning), var(--success));
-    transition: width 0.3s ease;
-    border-radius: 4px;
-}
-
-.confidence-text {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-}
-
-.date-cell {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    text-align: center;
-}
-
-/* COMPETITIVE ANALYSIS STYLES */
-.competitive-section {
-    background: var(--surface);
-    border: 2px solid var(--border);
-    border-radius: var(--radius);
-    padding: 2rem;
-    margin: 2rem 0;
-    box-shadow: var(--shadow-lg);
-}
-
-.vs-battle-header {
-    text-align: center;
-    margin-bottom: 2rem;
-}
-
-.vs-title {
-    font-size: 2.5rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, var(--primary), var(--success));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    margin-bottom: 0.5rem;
-}
-
-.vs-subtitle {
-    color: var(--text-secondary);
-    font-size: 1.125rem;
-    font-weight: 500;
-}
-
-.battle-grid {
-    display: grid;
-    grid-template-columns: 1fr 120px 1fr;
-    gap: 2rem;
-    align-items: center;
-    margin: 2rem 0;
-}
-
-.app-battle-card {
-    background: linear-gradient(135deg, var(--surface), #f8fafc);
-    border: 2px solid var(--border);
-    border-radius: var(--radius);
-    padding: 2rem;
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
-}
-
-.app-battle-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 4px;
-    background: linear-gradient(135deg, var(--primary), var(--success));
-}
-
-.app-battle-card.winner {
-    border-color: var(--success);
-    background: linear-gradient(135deg, var(--surface), rgba(16, 185, 129, 0.05));
-    transform: scale(1.02);
-    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-}
-
-.app-battle-card.winner::before {
-    background: linear-gradient(135deg, var(--success), #059669);
-    height: 6px;
-}
-
-.battle-vs {
-    text-align: center;
-    font-size: 4rem;
-    font-weight: 900;
-    color: var(--primary);
-    background: linear-gradient(135deg, var(--primary), var(--success));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100px;
-    position: relative;
-}
-
-.battle-vs::before {
-    content: '⚔️';
-    position: absolute;
-    top: -20px;
-    font-size: 2rem;
-}
-
-.app-name {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin-bottom: 1rem;
-    text-align: center;
-}
-
-.battle-score {
-    font-size: 3rem;
-    font-weight: 800;
-    color: var(--primary);
-    text-align: center;
-    margin-bottom: 1rem;
-}
-
-.winner-crown {
-    position: absolute;
-    top: -10px;
-    right: -10px;
-    font-size: 2rem;
-    animation: bounce 2s infinite;
-}
-
-@keyframes bounce {
-    0%, 20%, 50%, 80%, 100% {
-        transform: translateY(0);
+    /* Root Variables */
+    :root {
+        --primary-color: #2563eb;
+        --secondary-color: #1e40af;
+        --accent-color: #3b82f6;
+        --success-color: #059669;
+        --warning-color: #d97706;
+        --error-color: #dc2626;
+        --dark-bg: #0f172a;
+        --light-bg: #f8fafc;
+        --card-bg: rgba(255, 255, 255, 0.95);
+        --text-primary: #1e293b;
+        --text-secondary: #64748b;
+        --border-color: #e2e8f0;
+        --shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     }
-    40% {
-        transform: translateY(-10px);
+
+    /* Global Styles */
+    .main, .block-container {
+        font-family: 'Inter', sans-serif !important;
+        background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+        min-height: 100vh;
     }
-    60% {
-        transform: translateY(-5px);
+
+    /* Header Styles */
+    .main-header {
+        background: var(--card-bg);
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        margin-bottom: 2rem;
+        border: 1px solid var(--border-color);
+        text-align: center;
     }
-}
 
-/* ENHANCED METRICS */
-.metric-card {
-    background: linear-gradient(135deg, var(--surface), #f8fafc);
-    border: 2px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1.5rem;
-    text-align: center;
-    box-shadow: var(--shadow);
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
-}
-
-.metric-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 4px;
-    background: linear-gradient(135deg, var(--primary), var(--success));
-}
-
-.metric-card:hover {
-    box-shadow: var(--shadow-lg);
-    transform: translateY(-5px);
-}
-
-.metric-value {
-    font-size: 2.5rem;
-    font-weight: 800;
-    color: var(--primary);
-    margin-bottom: 0.5rem;
-    line-height: 1;
-}
-
-.metric-label {
-    font-size: 0.875rem;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-/* ENHANCED BUTTONS */
-.stButton > button {
-    background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-    border: none;
-    border-radius: var(--radius);
-    color: white;
-    font-weight: 600;
-    padding: 0.875rem 1.5rem;
-    transition: all 0.3s ease;
-    width: 100%;
-    font-size: 1rem;
-    box-shadow: var(--shadow);
-    position: relative;
-    overflow: hidden;
-}
-
-.stButton > button::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
-    transition: left 0.5s ease;
-}
-
-.stButton > button:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
-    background: linear-gradient(135deg, var(--primary-dark), var(--primary));
-}
-
-.stButton > button:hover::before {
-    left: 100%;
-}
-
-/* NAVIGATION */
-.nav-container {
-    background: linear-gradient(135deg, var(--surface), #f8fafc);
-    padding: 1rem;
-    border-radius: var(--radius);
-    box-shadow: var(--shadow);
-    margin-bottom: 2rem;
-    border: 2px solid var(--border);
-}
-
-/* FILTERS */
-.filter-container {
-    background: linear-gradient(135deg, var(--surface), #f8fafc);
-    border: 2px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1.5rem;
-    margin: 1.5rem 0;
-    box-shadow: var(--shadow);
-}
-
-/* STATUS INDICATORS */
-.status-live {
-    background: linear-gradient(135deg, var(--success), #059669);
-    color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 9999px;
-    font-size: 0.875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    box-shadow: var(--shadow);
-    animation: pulse 2s infinite;
-}
-
-@keyframes pulse {
-    0%, 100% { 
-        opacity: 1; 
-        transform: scale(1);
-    }
-    50% { 
-        opacity: 0.8; 
-        transform: scale(1.05);
-    }
-}
-
-.status-offline {
-    background: linear-gradient(135deg, var(--warning), #d97706);
-    color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 9999px;
-    font-size: 0.875rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    box-shadow: var(--shadow);
-}
-
-/* FORMS */
-.stTextInput > div > div > input {
-    border-radius: var(--radius);
-    border: 2px solid var(--border);
-    padding: 0.875rem;
-    transition: all 0.2s;
-    font-size: 1rem;
-}
-
-.stTextInput > div > div > input:focus {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-    transform: translateY(-1px);
-}
-
-.stSelectbox > div > div > div {
-    border-radius: var(--radius);
-    border: 2px solid var(--border);
-}
-
-/* AUTH PAGE */
-.auth-container {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 80vh;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-radius: var(--radius);
-    margin: 2rem 0;
-}
-
-.auth-card {
-    background: var(--surface);
-    padding: 3rem;
-    border-radius: 16px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    width: 100%;
-    max-width: 450px;
-    text-align: center;
-}
-
-.auth-title {
-    font-size: 2.5rem;
-    font-weight: 700;
-    color: var(--text-primary);
-    margin-bottom: 0.5rem;
-}
-
-.auth-subtitle {
-    color: var(--text-secondary);
-    margin-bottom: 2rem;
-    font-size: 1.125rem;
-    line-height: 1.5;
-}
-
-/* HIDE STREAMLIT ELEMENTS */
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-header {visibility: hidden;}
-.stDeployButton {display: none;}
-
-/* RESPONSIVE DESIGN */
-@media (max-width: 768px) {
     .header-title {
-        font-size: 2rem;
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: var(--primary-color);
+        margin-bottom: 0.5rem;
     }
-    
+
+    .header-subtitle {
+        font-size: 1.25rem;
+        color: var(--text-secondary);
+        margin-bottom: 1rem;
+    }
+
+    .developer-credit {
+        background: var(--primary-color);
+        color: white;
+        padding: 0.5rem 1rem;
+        border-radius: 4px;
+        font-weight: 600;
+        display: inline-block;
+        margin-top: 1rem;
+        font-size: 0.9rem;
+    }
+
+    /* Card Styles */
+    .metric-card, .analysis-card, .insight-card {
+        background: var(--card-bg);
+        padding: 1.5rem;
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        border: 1px solid var(--border-color);
+        margin-bottom: 1rem;
+        text-align: center;
+    }
+
+    .metric-card:hover, .analysis-card:hover, .insight-card:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+        transition: all 0.3s ease;
+    }
+
     .metric-value {
-        font-size: 2rem;
+        font-size: 2.5rem;
+        font-weight: 700;
+        color: var(--primary-color);
+        margin-bottom: 0.5rem;
     }
-    
-    .sheet-header,
-    .sheet-row {
-        grid-template-columns: 40px 100px 60px 1fr 100px 100px 60px;
-        gap: 0.5rem;
-        padding: 0.5rem;
-        font-size: 0.75rem;
-    }
-    
-    .battle-grid {
-        grid-template-columns: 1fr;
-        gap: 1rem;
-    }
-    
-    .battle-vs {
-        font-size: 2rem;
-        height: 60px;
-    }
-    
-    .vs-title {
-        font-size: 2rem;
-    }
-}
-</style>
-""", unsafe_allow_html=True)
 
-# DATABASE SETUP
-def setup_database():
-    """Complete database setup"""
-    conn = sqlite3.connect('reviewforge_pro.db', check_same_thread=False)
-    cursor = conn.cursor()
-    
-    # Users table
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        role TEXT DEFAULT 'user',
-        subscription_plan TEXT DEFAULT 'free',
-        premium_access BOOLEAN DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_login TIMESTAMP,
-        is_active BOOLEAN DEFAULT 1,
-        session_token TEXT,
-        api_key TEXT UNIQUE,
-        live_notifications BOOLEAN DEFAULT 0,
-        slack_webhook TEXT,
-        discord_webhook TEXT,
-        competitive_analysis_count INTEGER DEFAULT 0
-    )
-    ''')
-    
-    # Competitive analysis table
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS competitive_analysis (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        app1_package TEXT,
-        app2_package TEXT,
-        app1_name TEXT,
-        app2_name TEXT,
-        winner TEXT,
-        confidence_score REAL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users (id)
-    )
-    ''')
-    
-    # Create admin user
-    admin_exists = cursor.execute('SELECT id FROM users WHERE username = ?', ('admin',)).fetchone()
-    if not admin_exists:
-        admin_hash = generate_password_hash('Ayush123')
-        admin_api_key = secrets.token_urlsafe(32)
-        
-        cursor.execute('''
-        INSERT INTO users (
-            username, email, password_hash, role, subscription_plan, 
-            premium_access, api_key, live_notifications
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            'admin', 
-            'admin@reviewforge.pro', 
-            admin_hash, 
-            'superadmin', 
-            'enterprise', 
-            1, 
-            admin_api_key,
-            1
-        ))
-    
-    conn.commit()
-    conn.close()
+    .metric-label {
+        color: var(--text-secondary);
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-size: 0.8rem;
+    }
 
-# Initialize database
-setup_database()
+    /* Sidebar Styles */
+    .css-1d391kg {
+        background: linear-gradient(180deg, var(--dark-bg) 0%, #1e293b 100%);
+    }
 
-# ADVANCED SENTIMENT ANALYSIS
-class AdvancedSentimentAnalyzer:
-    def __init__(self):
-        self.positive_keywords = [
-            'excellent', 'amazing', 'outstanding', 'fantastic', 'perfect', 'brilliant',
-            'superb', 'wonderful', 'incredible', 'awesome', 'great', 'good', 'nice',
-            'love', 'like', 'best', 'favorite', 'impressive', 'remarkable', 'exceptional',
-            'pleased', 'satisfied', 'happy', 'delighted', 'thrilled', 'enjoy', 'recommend'
-        ]
-        
-        self.negative_keywords = [
-            'terrible', 'awful', 'horrible', 'worst', 'pathetic', 'disgusting', 'useless',
-            'hate', 'dislike', 'bad', 'poor', 'disappointing', 'frustrating', 'annoying',
-            'slow', 'buggy', 'crashes', 'freezes', 'broken', 'issues', 'problems',
-            'waste', 'scam', 'fraud', 'fake', 'spam', 'confusing', 'difficult'
-        ]
-    
-    def advanced_sentiment_analysis(self, text):
-        """Enhanced sentiment analysis"""
-        if not text or len(str(text).strip()) < 3:
-            return self._default_sentiment()
-        
-        text_str = str(text).lower().strip()
-        
-        # TextBlob Analysis
-        try:
-            blob = TextBlob(text_str)
-            textblob_polarity = blob.sentiment.polarity
-            textblob_subjectivity = blob.sentiment.subjectivity
-        except:
-            textblob_polarity = 0.0
-            textblob_subjectivity = 0.5
-        
-        # Keyword Analysis
-        positive_score = sum(1 for word in self.positive_keywords if word in text_str)
-        negative_score = sum(1 for word in self.negative_keywords if word in text_str)
-        
-        # Combined Analysis
-        total_words = len(text_str.split())
-        keyword_score = (positive_score - negative_score) / max(1, total_words) * 3
-        final_polarity = (textblob_polarity * 0.6) + (keyword_score * 0.4)
-        
-        # Determine sentiment
-        if final_polarity >= 0.1:
-            sentiment = "Positive"
-            confidence = min(1.0, abs(final_polarity) * 2.5 + 0.4)
-        elif final_polarity <= -0.1:
-            sentiment = "Negative"  
-            confidence = min(1.0, abs(final_polarity) * 2.5 + 0.4)
-        else:
-            sentiment = "Neutral"
-            confidence = 0.65 + abs(final_polarity) * 0.5
-        
-        return {
-            'sentiment': sentiment,
-            'confidence': round(confidence, 3),
-            'polarity': round(final_polarity, 3),
-            'subjectivity': round(textblob_subjectivity, 3),
-            'positive_keywords': positive_score,
-            'negative_keywords': negative_score,
-            'word_count': total_words
+    .sidebar-title {
+        color: white;
+        font-weight: 600;
+        font-size: 1.25rem;
+        margin-bottom: 1rem;
+        text-align: center;
+        padding: 1rem 0;
+        background: var(--primary-color);
+        border-radius: 4px;
+    }
+
+    /* Button Styles */
+    .stButton button {
+        background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+        color: white;
+        border: none;
+        border-radius: 6px;
+        padding: 0.75rem 2rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        box-shadow: var(--shadow);
+        width: 100%;
+    }
+
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--shadow-lg);
+        background: linear-gradient(135deg, var(--secondary-color), var(--primary-color));
+    }
+
+    /* Input Styles */
+    .stTextInput input, .stSelectbox select, .stNumberInput input {
+        border-radius: 6px;
+        border: 2px solid var(--border-color);
+        padding: 0.75rem;
+        transition: border-color 0.3s ease;
+    }
+
+    .stTextInput input:focus, .stSelectbox select:focus, .stNumberInput input:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+
+    /* Progress Bar */
+    .stProgress .st-bo {
+        background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
+        height: 6px;
+        border-radius: 3px;
+    }
+
+    /* Success/Warning/Error Messages */
+    .stSuccess {
+        background: linear-gradient(135deg, var(--success-color), #10b981);
+        color: white;
+        border-radius: 6px;
+        padding: 1rem;
+    }
+
+    .stWarning {
+        background: linear-gradient(135deg, var(--warning-color), #f59e0b);
+        color: white;
+        border-radius: 6px;
+        padding: 1rem;
+    }
+
+    .stError {
+        background: linear-gradient(135deg, var(--error-color), #ef4444);
+        color: white;
+        border-radius: 6px;
+        padding: 1rem;
+    }
+
+    /* Chart Containers */
+    .chart-container {
+        background: var(--card-bg);
+        padding: 1.5rem;
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+        border: 1px solid var(--border-color);
+        margin-bottom: 2rem;
+    }
+
+    .chart-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: 1rem;
+        text-align: center;
+    }
+
+    /* Navigation Styles */
+    .nav-item {
+        background: var(--card-bg);
+        padding: 1rem;
+        border-radius: 6px;
+        margin-bottom: 0.5rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        border: 2px solid transparent;
+        text-align: center;
+    }
+
+    .nav-item:hover {
+        background: var(--primary-color);
+        color: white;
+        transform: translateX(5px);
+    }
+
+    .nav-item.active {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--accent-color);
+    }
+
+    /* Table Styles */
+    .dataframe {
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+        width: 100%;
+    }
+
+    .dataframe th {
+        background: var(--primary-color);
+        color: white;
+        font-weight: 600;
+        padding: 1rem;
+    }
+
+    .dataframe td {
+        padding: 0.75rem;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: var(--light-bg);
+        border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--primary-color);
+        border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: var(--secondary-color);
+    }
+
+    /* Responsive Design */
+    @media (max-width: 768px) {
+        .header-title {
+            font-size: 2rem;
         }
-    
-    def _default_sentiment(self):
-        return {
-            'sentiment': 'Neutral',
-            'confidence': 0.5,
-            'polarity': 0.0,
-            'subjectivity': 0.5,
-            'positive_keywords': 0,
-            'negative_keywords': 0,
-            'word_count': 0
+
+        .metric-card {
+            padding: 1rem;
         }
 
-# AUTHENTICATION MANAGER
-class AuthenticationManager:
-    def __init__(self):
-        self.db_path = 'reviewforge_pro.db'
-    
-    def get_connection(self):
-        return sqlite3.connect(self.db_path, check_same_thread=False)
-    
-    def authenticate_user(self, username: str, password: str):
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            user = cursor.execute('''
-            SELECT id, username, email, password_hash, role, subscription_plan, 
-                   premium_access, api_key, live_notifications, slack_webhook, 
-                   discord_webhook, competitive_analysis_count
-            FROM users WHERE (username = ? OR email = ?) AND is_active = 1
-            ''', (username, username)).fetchone()
-            
-            if user and check_password_hash(user[3], password):
-                session_token = secrets.token_urlsafe(32)
-                cursor.execute('''
-                UPDATE users SET last_login = CURRENT_TIMESTAMP, session_token = ? 
-                WHERE id = ?
-                ''', (session_token, user[0]))
-                conn.commit()
-                
-                user_data = {
-                    'id': user[0],
-                    'username': user[1],
-                    'email': user[2],
-                    'role': user[4],
-                    'subscription_plan': user[5],
-                    'premium_access': bool(user[6]) or user[4] in ['admin', 'superadmin'],
-                    'session_token': session_token,
-                    'api_key': user[7],
-                    'live_notifications': bool(user[8]),
-                    'slack_webhook': user[9],
-                    'discord_webhook': user[10],
-                    'competitive_analysis_count': user[11] or 0
-                }
-                
-                conn.close()
-                return user_data
-            
-            conn.close()
-            return None
-            
-        except Exception as e:
-            st.error(f"Authentication error: {str(e)}")
-            return None
-    
-    def validate_session(self, session_token: str):
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            user = cursor.execute('''
-            SELECT id, username, email, role, subscription_plan, premium_access, 
-                   api_key, live_notifications, slack_webhook, discord_webhook, 
-                   competitive_analysis_count
-            FROM users WHERE session_token = ? AND is_active = 1
-            ''', (session_token,)).fetchone()
-            
-            if user:
-                user_data = {
-                    'id': user[0],
-                    'username': user[1],
-                    'email': user[2],
-                    'role': user[3],
-                    'subscription_plan': user[4],
-                    'premium_access': bool(user[5]) or user[3] in ['admin', 'superadmin'],
-                    'session_token': session_token,
-                    'api_key': user[6],
-                    'live_notifications': bool(user[7]),
-                    'slack_webhook': user[8],
-                    'discord_webhook': user[9],
-                    'competitive_analysis_count': user[10] or 0
-                }
-                conn.close()
-                return user_data
-            
-            conn.close()
-            return None
-            
-        except Exception:
-            return None
-    
-    def register_user(self, username: str, email: str, password: str):
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            
-            password_hash = generate_password_hash(password)
-            api_key = secrets.token_urlsafe(32)
-            
-            cursor.execute('''
-            INSERT INTO users (username, email, password_hash, api_key) 
-            VALUES (?, ?, ?, ?)
-            ''', (username, email, password_hash, api_key))
-            
-            conn.commit()
-            conn.close()
-            return True
-            
-        except sqlite3.IntegrityError:
-            return False
-        except Exception:
-            return False
-    
-    def logout_user(self, session_token: str):
-        try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('UPDATE users SET session_token = NULL WHERE session_token = ?', (session_token,))
-            conn.commit()
-            conn.close()
-        except Exception:
-            pass
+        .metric-value {
+            font-size: 2rem;
+        }
+    }
 
-# PROFESSIONAL REVIEW ANALYZER
-class ProfessionalReviewAnalyzer:
+    /* Loading Animation */
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+
+    .loading {
+        animation: pulse 2s infinite;
+    }
+
+    /* Data Table Enhancements */
+    .stDataFrame {
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+    }
+
+    /* Sidebar Navigation Enhancement */
+    .nav-section {
+        background: var(--card-bg);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        box-shadow: var(--shadow);
+    }
+
+    .nav-section h3 {
+        color: var(--primary-color);
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+        font-size: 1.1rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+apply_advanced_styling()
+
+# Session State Management
+def initialize_session_state():
+    session_defaults = {
+        'current_page': 'dashboard',
+        'analyzed_data': None,
+        'competitor_data': None,
+        'analysis_history': [],
+        'user_preferences': {},
+        'ml_models': {},
+        'advanced_insights': {},
+        'export_data': None,
+        'cached_reviews': {},
+        'app_info': {},
+        'user_authenticated': False,
+        'user_role': 'viewer'
+    }
+
+    for key, default_value in session_defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
+
+initialize_session_state()
+
+# Performance Optimization: Caching
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_scrape_reviews(package_name, count=500, sort_by=Sort.NEWEST):
+    """Cached version of review scraping to improve performance"""
+    analyzer = ReviewAnalyzer()
+    return analyzer.scrape_reviews(package_name, count, sort_by)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_generate_ml_insights(df):
+    """Cached version of ML insights generation"""
+    analyzer = ReviewAnalyzer()
+    return analyzer.generate_ml_insights(df)
+
+# Advanced Helper Functions
+class ReviewAnalyzer:
     def __init__(self):
-        self.sentiment_analyzer = AdvancedSentimentAnalyzer()
-    
+        self.stop_words = set(stopwords.words('english'))
+        self.lemmatizer = WordNetLemmatizer()
+        self.ml_models = {
+            'naive_bayes': MultinomialNB(),
+            'logistic_regression': LogisticRegression(max_iter=1000),
+            'random_forest': RandomForestClassifier(n_estimators=100)
+        }
+
     def extract_package_name(self, url):
-        """Extract package name from URL"""
-        if not url:
+        """Extract package name from Google Play URL with validation"""
+        if not url or not isinstance(url, str):
             return None
-        
-        url = url.strip().lower()
-        
+
         patterns = [
             r'id=([a-zA-Z0-9_\.]+)',
             r'/store/apps/details\?id=([a-zA-Z0-9_\.]+)',
-            r'details\?id=([a-zA-Z0-9_\.]+)'
+            r'play\.google\.com.*id=([a-zA-Z0-9_\.]+)'
         ]
-        
+
         for pattern in patterns:
             match = re.search(pattern, url)
             if match:
-                return match.group(1)
-        
-        if re.match(r'^[a-zA-Z0-9_\.]+$', url) and '.' in url:
-            return url
-            
+                package_name = match.group(1)
+                if self.validate_package_name(package_name):
+                    return package_name
         return None
-    
+
+    def validate_package_name(self, package_name):
+        """Validate package name format"""
+        pattern = r'^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z][a-zA-Z0-9_]*)*$'
+        return bool(re.match(pattern, package_name)) and len(package_name.split('.')) >= 2
+
     def get_app_name(self, package_name):
-        """Get app name from package"""
+        """Extract readable app name from package name"""
         if not package_name:
             return "Unknown App"
-        
-        # Common app mappings
-        app_names = {
-            'com.whatsapp': 'WhatsApp',
-            'com.instagram.android': 'Instagram',
-            'com.spotify.music': 'Spotify',
-            'com.netflix.mediaclient': 'Netflix',
-            'com.tiktok': 'TikTok',
-            'com.telegram.messenger': 'Telegram'
+        parts = package_name.split('.')
+        return parts[-1].replace('_', ' ').title()
+
+    def preprocess_text(self, text):
+        """Advanced text preprocessing"""
+        if pd.isna(text) or not isinstance(text, str):
+            return ""
+
+        # Convert to lowercase
+        text = text.lower()
+
+        # Remove URLs, mentions, hashtags
+        text = re.sub(r'http\S+|www\S+|https\S+', '', text)
+        text = re.sub(r'@\w+|#\w+', '', text)
+
+        # Remove special characters and digits
+        text = re.sub(r'[^a-zA-Z\s]', '', text)
+
+        # Tokenize
+        tokens = word_tokenize(text)
+
+        # Remove stopwords and lemmatize
+        tokens = [self.lemmatizer.lemmatize(token) for token in tokens 
+                 if token not in self.stop_words and len(token) > 2]
+
+        return ' '.join(tokens)
+
+    def advanced_sentiment_analysis(self, text):
+        """Advanced sentiment analysis with multiple approaches"""
+        if pd.isna(text) or text.strip() == "":
+            return {
+                'polarity': 0.0,
+                'subjectivity': 0.0,
+                'sentiment': 'Neutral',
+                'confidence': 0.0,
+                'emotional_intensity': 0.0,
+                'aspects': {},
+                'keywords': []
+            }
+
+        # TextBlob analysis
+        blob = TextBlob(str(text))
+        polarity = blob.sentiment.polarity
+        subjectivity = blob.sentiment.subjectivity
+
+        # Emotional intensity calculation
+        emotional_words = {
+            'excellent': 2.0, 'amazing': 1.8, 'outstanding': 1.7, 'perfect': 1.6,
+            'wonderful': 1.5, 'fantastic': 1.4, 'great': 1.2, 'good': 1.0,
+            'terrible': -2.0, 'awful': -1.8, 'horrible': -1.7, 'worst': -1.6,
+            'hate': -1.5, 'disgusting': -1.4, 'bad': -1.2, 'poor': -1.0
         }
-        
-        if package_name in app_names:
-            return app_names[package_name]
-        
-        # Fallback extraction
-        name_part = package_name.split('.')[-1]
-        return name_part.replace('_', ' ').title()
-    
-    def extract_playstore_reviews_enhanced(self, package_name, count=1000):
-        """Enhanced review extraction with progress tracking"""
+
+        intensity = 0.0
+        text_lower = text.lower()
+        found_keywords = []
+
+        for word, weight in emotional_words.items():
+            if word in text_lower:
+                intensity += weight
+                found_keywords.append(word)
+
+        # Normalize intensity
+        intensity = max(-2.0, min(2.0, intensity))
+
+        # Aspect-based analysis
+        aspects = {
+            'performance': any(word in text_lower for word in 
+                             ['fast', 'slow', 'speed', 'lag', 'performance', 'responsive', 'quick']),
+            'ui_design': any(word in text_lower for word in 
+                           ['design', 'interface', 'ui', 'layout', 'beautiful', 'ugly', 'visual']),
+            'functionality': any(word in text_lower for word in 
+                               ['feature', 'function', 'work', 'broken', 'bug', 'crash', 'issue']),
+            'usability': any(word in text_lower for word in 
+                           ['easy', 'difficult', 'simple', 'complex', 'intuitive', 'confusing']),
+            'reliability': any(word in text_lower for word in 
+                             ['stable', 'crash', 'freeze', 'reliable', 'consistent', 'glitch'])
+        }
+
+        # Sentiment classification with confidence
+        if polarity > 0.5:
+            sentiment = "Highly Positive"
+            confidence = min(1.0, abs(polarity) + 0.3)
+        elif polarity > 0.2:
+            sentiment = "Positive"
+            confidence = min(1.0, abs(polarity) + 0.2)
+        elif polarity > 0.0:
+            sentiment = "Slightly Positive"
+            confidence = min(1.0, abs(polarity) + 0.1)
+        elif polarity < -0.5:
+            sentiment = "Highly Negative"
+            confidence = min(1.0, abs(polarity) + 0.3)
+        elif polarity < -0.2:
+            sentiment = "Negative"
+            confidence = min(1.0, abs(polarity) + 0.2)
+        elif polarity < 0.0:
+            sentiment = "Slightly Negative"
+            confidence = min(1.0, abs(polarity) + 0.1)
+        else:
+            sentiment = "Neutral"
+            confidence = max(0.1, 1.0 - abs(subjectivity))
+
+        return {
+            'polarity': polarity,
+            'subjectivity': subjectivity,
+            'sentiment': sentiment,
+            'confidence': confidence,
+            'emotional_intensity': intensity,
+            'aspects': aspects,
+            'keywords': found_keywords
+        }
+
+    def scrape_reviews(self, package_name, count=500, sort_by=Sort.NEWEST):
+        """Enhanced review scraping with error handling"""
         try:
-            app_name = self.get_app_name(package_name)
-            st.info(f"🚀 Starting analysis for: **{app_name}**")
-            
-            # Progress tracking
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            status_text.text("📱 Phase 1/3: Extracting reviews...")
-            
-            # Extract reviews
-            all_reviews = []
-            batch_size = min(200, count)
-            batches_needed = min((count + batch_size - 1) // batch_size, 5)
-            
-            for batch_num in range(batches_needed):
-                try:
-                    batch_count = min(batch_size, count - len(all_reviews))
-                    
-                    result, continuation_token = reviews(
-                        package_name,
-                        lang='en',
-                        country='us',
-                        sort=Sort.NEWEST,
-                        count=batch_count
-                    )
-                    
-                    if result:
-                        all_reviews.extend(result)
-                        progress = (batch_num + 1) / batches_needed * 0.4
-                        progress_bar.progress(progress)
-                        status_text.text(f"📊 Extracted {len(all_reviews)} reviews...")
-                    else:
-                        break
-                        
-                except Exception as e:
-                    if batch_num == 0:
-                        st.error(f"❌ Extraction failed: {str(e)}")
-                        return pd.DataFrame()
-                    break
-            
-            if not all_reviews:
-                st.error("❌ No reviews found")
-                return pd.DataFrame()
-            
-            # Process data
-            status_text.text("🔄 Phase 2/3: Processing data...")
-            df = pd.DataFrame(all_reviews)
-            progress_bar.progress(0.4)
-            
-            # Sentiment analysis
-            status_text.text("🧠 Phase 3/3: AI sentiment analysis...")
-            
-            sentiment_data = []
-            total_reviews = len(df)
-            
-            for idx, review in df.iterrows():
-                sentiment_result = self.sentiment_analyzer.advanced_sentiment_analysis(review['content'])
-                sentiment_data.append(sentiment_result)
-                
-                progress = 0.4 + ((idx + 1) / total_reviews) * 0.6
-                progress_bar.progress(progress)
-            
-            # Add sentiment data
-            for idx, sentiment in enumerate(sentiment_data):
-                for key, value in sentiment.items():
-                    df.loc[idx, key] = value
-            
-            # Additional metrics
-            df['review_length'] = df['content'].str.len()
-            df['is_detailed'] = df['review_length'] > 100
-            df['quality_score'] = np.clip(
-                (df['review_length'] / 150 * 0.3 +
-                 df['confidence'] * 0.4 +
-                 (df['positive_keywords'] + df['negative_keywords']) / 10 * 0.3), 
-                0, 5
-            ).round(2)
-            
-            progress_bar.progress(1.0)
-            status_text.text("✅ Analysis complete!")
-            time.sleep(1)
-            progress_bar.empty()
-            status_text.empty()
-            
-            st.success(f"🎉 Analyzed {len(df)} reviews for {app_name}")
-            return df
-            
+            with st.spinner(f"Extracting {count} reviews for analysis..."):
+                result, continuation_token = reviews(
+                    package_name,
+                    lang='en',
+                    country='us',
+                    sort=sort_by,
+                    count=count,
+                    filter_score_with=None
+                )
+
+                if not result:
+                    st.warning("No reviews found for this app")
+                    return pd.DataFrame()
+
+                # Convert to DataFrame
+                df = pd.DataFrame(result)
+
+                # Add advanced analysis
+                progress_bar = st.progress(0)
+                sentiments = []
+
+                for idx, review in df.iterrows():
+                    sentiment_data = self.advanced_sentiment_analysis(review['content'])
+                    sentiments.append(sentiment_data)
+                    progress_bar.progress((idx + 1) / len(df))
+
+                # Flatten sentiment data
+                for idx, sentiment in enumerate(sentiments):
+                    for key, value in sentiment.items():
+                        if key == 'aspects':
+                            for aspect, present in value.items():
+                                df.loc[idx, f'aspect_{aspect}'] = present
+                        elif key == 'keywords':
+                            df.loc[idx, 'keywords'] = ', '.join(value) if value else ''
+                        else:
+                            df.loc[idx, key] = value
+
+                progress_bar.empty()
+                return df
+
         except Exception as e:
-            st.error(f"❌ Analysis failed: {str(e)}")
+            st.error(f"Error scraping reviews: {str(e)}")
             return pd.DataFrame()
-    
-    def competitive_analysis(self, package1, package2, review_count=500):
-        """Competitive analysis between two apps"""
-        app1_name = self.get_app_name(package1)
-        app2_name = self.get_app_name(package2)
+
+    def generate_ml_insights(self, df):
+        """Generate machine learning based insights"""
+        if df.empty or 'content' not in df.columns:
+            return {}
+
+        try:
+            # Prepare text data
+            texts = df['content'].fillna('').astype(str)
+            processed_texts = [self.preprocess_text(text) for text in texts]
+
+            # TF-IDF Vectorization
+            tfidf = TfidfVectorizer(max_features=1000, stop_words='english')
+            X_tfidf = tfidf.fit_transform(processed_texts)
+
+            # Topic Modeling with LDA
+            lda = LatentDirichletAllocation(n_components=5, random_state=42)
+            lda_topics = lda.fit_transform(X_tfidf)
+
+            # Feature names for topics
+            feature_names = tfidf.get_feature_names_out()
+
+            # Extract topics
+            topics = []
+            for topic_idx, topic in enumerate(lda.components_):
+                top_words = [feature_names[i] for i in topic.argsort()[-10:][::-1]]
+                topics.append({
+                    'topic_id': topic_idx + 1,
+                    'keywords': top_words,
+                    'weight': topic.sum()
+                })
+
+            # Clustering
+            n_clusters = min(5, len(df) // 10) if len(df) > 50 else 3
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+            clusters = kmeans.fit_predict(X_tfidf.toarray())
+
+            # Key phrases extraction
+            count_vectorizer = CountVectorizer(ngram_range=(2, 3), max_features=20, stop_words='english')
+            phrases = count_vectorizer.fit_transform(processed_texts)
+            phrase_freq = zip(count_vectorizer.get_feature_names_out(), 
+                            phrases.sum(axis=0).A1)
+            key_phrases = sorted(phrase_freq, key=lambda x: x[1], reverse=True)[:10]
+
+            return {
+                'topics': topics,
+                'clusters': clusters.tolist(),
+                'n_clusters': n_clusters,
+                'key_phrases': [{'phrase': phrase, 'frequency': freq} for phrase, freq in key_phrases],
+                'tfidf_features': feature_names.tolist()[:50]
+            }
+
+        except Exception as e:
+            st.error(f"Error generating ML insights: {str(e)}")
+            return {}
+
+    # NEW: Time series analysis
+    def analyze_trends(self, df):
+        """Analyze rating trends over time"""
+        if df.empty or 'at' not in df.columns:
+            return None
+            
+        df = df.copy()
+        df['date'] = pd.to_datetime(df['at']).dt.date
+        df['week'] = pd.to_datetime(df['at']).dt.to_period('W').apply(lambda r: r.start_time)
+        df['month'] = pd.to_datetime(df['at']).dt.to_period('M').apply(lambda r: r.start_time)
         
-        st.markdown("""
-        <div class="competitive-section">
-            <div class="vs-battle-header">
-                <div class="vs-title">COMPETITIVE ANALYSIS</div>
-                <div class="vs-subtitle">AI-Powered App Comparison</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        # Daily trends
+        daily_stats = df.groupby('date').agg({
+            'score': ['mean', 'count'],
+            'polarity': 'mean',
+            'emotional_intensity': 'mean'
+        }).round(3)
         
-        col1, col2, col3 = st.columns([2, 1, 2])
+        daily_stats.columns = ['avg_rating', 'review_count', 'avg_polarity', 'avg_intensity']
         
-        with col1:
-            st.markdown(f"### 📱 {app1_name}")
-            with st.spinner(f"Analyzing {app1_name}..."):
-                df1 = self.extract_playstore_reviews_enhanced(package1, review_count)
+        # Weekly trends
+        weekly_stats = df.groupby('week').agg({
+            'score': ['mean', 'count'],
+            'polarity': 'mean',
+            'emotional_intensity': 'mean'
+        }).round(3)
         
-        with col2:
-            st.markdown('<div class="battle-vs">VS</div>', unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown(f"### 📱 {app2_name}")
-            with st.spinner(f"Analyzing {app2_name}..."):
-                df2 = self.extract_playstore_reviews_enhanced(package2, review_count)
-        
-        if df1.empty or df2.empty:
-            st.error("❌ Could not extract reviews for comparison")
-            return None, None, None
-        
-        comparison_data = self._perform_competitive_comparison(df1, df2, package1, package2)
-        return df1, df2, comparison_data
-    
-    def _perform_competitive_comparison(self, df1, df2, package1, package2):
-        """Perform competitive comparison"""
-        app1_name = self.get_app_name(package1)
-        app2_name = self.get_app_name(package2)
-        
-        # Calculate metrics
-        metrics1 = self._calculate_app_metrics(df1)
-        metrics2 = self._calculate_app_metrics(df2)
-        
-        # Scoring system (100 points)
-        scores = {'app1': 0, 'app2': 0}
-        
-        # Rating (30 points)
-        if metrics1['avg_rating'] > metrics2['avg_rating']:
-            scores['app1'] += 30
-            scores['app2'] += 25
-        else:
-            scores['app2'] += 30
-            scores['app1'] += 25
-        
-        # Sentiment (40 points)
-        if metrics1['positive_rate'] > metrics2['positive_rate']:
-            scores['app1'] += 40
-            scores['app2'] += 30
-        else:
-            scores['app2'] += 40
-            scores['app1'] += 30
-        
-        # Engagement (30 points)
-        if metrics1['detailed_review_rate'] > metrics2['detailed_review_rate']:
-            scores['app1'] += 30
-            scores['app2'] += 20
-        else:
-            scores['app2'] += 30
-            scores['app1'] += 20
-        
-        # Determine winner
-        total_score_1 = scores['app1']
-        total_score_2 = scores['app2']
-        
-        if total_score_1 > total_score_2:
-            winner = app1_name
-            confidence = (total_score_1 / (total_score_1 + total_score_2)) * 100
-        else:
-            winner = app2_name
-            confidence = (total_score_2 / (total_score_1 + total_score_2)) * 100
+        weekly_stats.columns = ['avg_rating', 'review_count', 'avg_polarity', 'avg_intensity']
         
         return {
-            'app1_name': app1_name,
-            'app2_name': app2_name,
-            'app1_metrics': metrics1,
-            'app2_metrics': metrics2,
-            'app1_score': round(total_score_1, 1),
-            'app2_score': round(total_score_2, 1),
-            'winner': winner,
-            'confidence': round(confidence, 1)
-        }
-    
-    def _calculate_app_metrics(self, df):
-        """Calculate app metrics"""
-        return {
-            'total_reviews': len(df),
-            'avg_rating': round(df['score'].mean(), 2),
-            'positive_rate': round((df['sentiment'] == 'Positive').sum() / len(df) * 100, 1),
-            'negative_rate': round((df['sentiment'] == 'Negative').sum() / len(df) * 100, 1),
-            'neutral_rate': round((df['sentiment'] == 'Neutral').sum() / len(df) * 100, 1),
-            'avg_confidence': round(df['confidence'].mean(), 3),
-            'avg_review_length': round(df['review_length'].mean(), 0),
-            'detailed_review_rate': round((df['is_detailed']).sum() / len(df) * 100, 1),
-            'avg_quality_score': round(df['quality_score'].mean(), 2)
+            'daily': daily_stats,
+            'weekly': weekly_stats
         }
 
-# PROFESSIONAL DATA SHEET
-class ProfessionalDataSheet:
-    def create_review_sheet(self, df, app_name="App", max_rows=100):
-        """Create professional sheet display"""
-        if df.empty:
-            st.warning("📊 No data to display")
-            return
-        
-        display_df = df.head(max_rows).copy()
-        
-        # Sheet container
-        st.markdown(f'''
-        <div class="professional-sheet">
-            <div class="sheet-toolbar">
-                <div class="sheet-title">📊 Review Analysis Sheet - {app_name}</div>
-                <div style="font-size: 0.875rem; color: var(--text-secondary);">
-                    Showing {len(display_df):,} of {len(df):,} reviews
-                </div>
-            </div>
-            
-            <div class="sheet-header">
-                <div><strong>#</strong></div>
-                <div><strong>👤 Reviewer</strong></div>
-                <div><strong>⭐ Rating</strong></div>
-                <div><strong>💬 Review Content</strong></div>
-                <div><strong>😊 Sentiment</strong></div>
-                <div><strong>🎯 Confidence</strong></div>
-                <div><strong>📅 Date</strong></div>
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
-        
-        # Sheet content
-        sheet_html = '<div class="sheet-content">'
-        
-        for idx, row in display_df.iterrows():
-            row_num = idx + 1
-            reviewer = str(row.get('userName', f'User {row_num}'))[:15] + ('...' if len(str(row.get('userName', ''))) > 15 else '')
-            rating = int(row.get('score', 0))
-            review_text = str(row.get('content', ''))
-            sentiment = row.get('sentiment', 'Neutral')
-            confidence = float(row.get('confidence', 0.5))
-            review_date = str(row.get('at', 'Unknown'))[:10] if row.get('at') else 'Unknown'
-            
-            # Format data
-            stars = '⭐' * rating if rating > 0 else '⭐'
-            sentiment_class = f'sentiment-{sentiment.lower()}'
-            confidence_percent = f'{confidence * 100:.0f}%'
-            confidence_width = f'{confidence * 100:.0f}%'
-            
-            sheet_html += f'''
-            <div class="sheet-row">
-                <div class="row-number">{row_num}</div>
-                <div class="reviewer-cell" title="{reviewer}">{reviewer}</div>
-                <div class="rating-cell">
-                    <span class="rating-stars" title="{rating}/5 stars">{stars}</span>
-                    <span class="rating-number">{rating}</span>
-                </div>
-                <div class="review-content-cell" title="Click to expand">{review_text}</div>
-                <div class="sentiment-cell">
-                    <span class="{sentiment_class}">{sentiment}</span>
-                </div>
-                <div class="confidence-cell">
-                    <div class="confidence-bar-container">
-                        <div class="confidence-bar" style="width: {confidence_width}"></div>
-                    </div>
-                    <div class="confidence-text">{confidence_percent}</div>
-                </div>
-                <div class="date-cell">{review_date}</div>
-            </div>
-            '''
-        
-        sheet_html += '</div>'
-        st.markdown(sheet_html, unsafe_allow_html=True)
-        
-        if len(df) > max_rows:
-            st.info(f"📄 Displaying first {max_rows} of {len(df):,} reviews")
+# Initialize analyzer
+analyzer = ReviewAnalyzer()
 
-# SESSION STATE MANAGEMENT
-def init_session_state():
-    """Initialize session state"""
-    defaults = {
-        'current_page': 'login',
-        'user_data': None,
-        'session_token': None,
-        'analyzed_data': None,
-        'competitive_data': None,
-        'current_app_name': None,
-        'last_activity': datetime.now()
-    }
-    
-    for key, default in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = default
-
-# Initialize components
-init_session_state()
-auth_manager = AuthenticationManager()
-analyzer = ProfessionalReviewAnalyzer()
-data_sheet = ProfessionalDataSheet()
-
-# NAVIGATION FUNCTIONS
 def create_header():
-    """Create professional header"""
-    if st.session_state.current_page == 'login':
-        return
-    
-    user = st.session_state.user_data
-    if not user:
-        return
-    
-    status_text = "LIVE" if user.get('live_notifications') else "OFFLINE"
-    status_class = "status-live" if user.get('live_notifications') else "status-offline"
-    
-    st.markdown(f"""
-    <div class="app-header">
-        <div class="header-title">ReviewForge Analytics Pro</div>
-        <div class="header-subtitle">
-            Advanced Review Intelligence Platform | User: {user['username']} | 
-            Status: <span class="{status_class}">{status_text}</span>
+    """Create modern header with developer credit"""
+    st.markdown("""
+    <div class="main-header">
+        <h1 class="header-title">ReviewForge Analytics Pro</h1>
+        <p class="header-subtitle">Advanced AI-Powered Review Analysis Platform</p>
+        <div class="developer-credit">
+            Developed by Ayush Pandey - Advanced Analytics & Machine Learning
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 def create_navigation():
-    """Create navigation"""
-    if st.session_state.current_page == 'login':
-        return
-    
-    st.markdown('<div class="nav-container">', unsafe_allow_html=True)
-    
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    
-    with col1:
-        if st.button("🏠 Dashboard", key="nav_dashboard", use_container_width=True):
-            st.session_state.current_page = 'dashboard'
-            st.rerun()
-    
-    with col2:
-        if st.button("📱 Play Store", key="nav_playstore", use_container_width=True):
-            st.session_state.current_page = 'playstore'
-            st.rerun()
-    
-    with col3:
-        if st.button("🆚 Competitive", key="nav_competitive", use_container_width=True):
-            st.session_state.current_page = 'competitive'
-            st.rerun()
-    
-    with col4:
-        if st.button("🔔 Notifications", key="nav_notifications", use_container_width=True):
-            st.session_state.current_page = 'notifications'
-            st.rerun()
-    
-    with col5:
-        if st.button("⚙️ Settings", key="nav_settings", use_container_width=True):
-            st.session_state.current_page = 'settings'
-            st.rerun()
-    
-    with col6:
-        if st.button("🚪 Logout", key="nav_logout", use_container_width=True):
-            logout_user()
-    
-    st.markdown('</div>', unsafe_allow_html=True)
+    """Create advanced navigation system"""
+    st.sidebar.markdown('<div class="sidebar-title">Navigation Hub</div>', unsafe_allow_html=True)
 
-def create_sidebar():
-    """Create sidebar"""
-    if st.session_state.current_page == 'login':
-        return
-    
-    user = st.session_state.user_data
-    if not user:
-        return
-    
-    with st.sidebar:
-        st.markdown("### 👤 User Info")
-        st.write(f"**Username:** {user['username']}")
-        st.write(f"**Role:** {user['role'].title()}")
-        st.write(f"**Plan:** {user['subscription_plan'].title()}")
-        
-        st.markdown("---")
-        st.markdown("### 📊 Quick Stats")
-        
-        playstore_count = len(st.session_state.analyzed_data) if st.session_state.analyzed_data is not None else 0
-        competitive_count = user.get('competitive_analysis_count', 0)
-        
-        st.metric("Play Store Reviews", f"{playstore_count:,}")
-        st.metric("Competitive Analyses", f"{competitive_count}")
-        
-        st.markdown("---")
-        if st.button("🚪 Sign Out", key="sidebar_logout", use_container_width=True):
-            logout_user()
+    pages = {
+        'dashboard': 'Analytics Dashboard',
+        'deep_analysis': 'Deep Analysis Engine',
+        'competitor': 'Competitive Intelligence',
+        'ml_insights': 'ML Insights Laboratory',
+        'trend_analysis': 'Trend Analysis',
+        'export_reports': 'Export & Reporting',
+        'settings': 'Advanced Settings'
+    }
 
-# AUTHENTICATION
-def show_login():
-    """Login page"""
-    st.markdown("""
-    <div class="auth-container">
-        <div class="auth-card">
-            <div class="auth-title">ReviewForge Analytics Pro</div>
-            <div class="auth-subtitle">
-                Advanced Review Intelligence Platform
-            </div>
-        </div>
+    for page_key, page_name in pages.items():
+        if st.sidebar.button(page_name, key=f"nav_{page_key}", use_container_width=True):
+            st.session_state.current_page = page_key
+            st.rerun()
+
+    # Current page indicator
+    st.sidebar.markdown(f"""
+    <div class="nav-section">
+        <h3>Current Page</h3>
+        <p style="color: white; font-weight: 600;">{pages[st.session_state.current_page]}</p>
     </div>
     """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    
-    with col2:
-        tab1, tab2 = st.tabs(["🔐 Sign In", "📝 Register"])
-        
-        with tab1:
-            with st.form("login_form"):
-                st.markdown("### Access Dashboard")
-                username = st.text_input("Username", placeholder="Enter username")
-                password = st.text_input("Password", type="password", placeholder="Enter password")
-                
-                st.info("")
-                
-                if st.form_submit_button("🚀 Sign In", use_container_width=True):
-                    if username and password:
-                        user_data = auth_manager.authenticate_user(username, password)
-                        if user_data:
-                            st.session_state.user_data = user_data
-                            st.session_state.session_token = user_data['session_token']
-                            st.session_state.current_page = 'dashboard'
-                            st.success("✅ Login successful!")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error("❌ Invalid credentials")
-                    else:
-                        st.warning("⚠️ Please enter credentials")
-        
-        with tab2:
-            with st.form("register_form"):
-                st.markdown("### Create Account")
-                reg_username = st.text_input("Username", placeholder="Choose username")
-                reg_email = st.text_input("Email", placeholder="your.email@company.com")
-                reg_password = st.text_input("Password", type="password", placeholder="Strong password")
-                
-                if st.form_submit_button("✨ Create Account", use_container_width=True):
-                    if reg_username and reg_email and reg_password:
-                        if len(reg_password) >= 6:
-                            if auth_manager.register_user(reg_username, reg_email, reg_password):
-                                st.success("🎉 Account created! Please sign in.")
-                            else:
-                                st.error("❌ Username/email exists")
-                        else:
-                            st.error("⚠️ Password too short")
-                    else:
-                        st.warning("⚠️ Fill all fields")
 
-def check_authentication():
-    """Check authentication"""
-    if st.session_state.session_token:
-        user_data = auth_manager.validate_session(st.session_state.session_token)
-        if user_data:
-            st.session_state.user_data = user_data
-            return True
+    # User authentication section
+    st.sidebar.markdown("---")
+    st.sidebar.markdown('<div class="sidebar-title">User Access</div>', unsafe_allow_html=True)
     
-    st.session_state.user_data = None
-    st.session_state.session_token = None
-    st.session_state.current_page = 'login'
-    return False
+    if not st.session_state.user_authenticated:
+        if st.sidebar.button("Login", key="login_btn", use_container_width=True):
+            st.session_state.user_authenticated = True
+            st.session_state.user_role = "admin"
+            st.rerun()
+    else:
+        st.sidebar.success(f"Logged in as: {st.session_state.user_role}")
+        if st.sidebar.button("Logout", key="logout_btn", use_container_width=True):
+            st.session_state.user_authenticated = False
+            st.session_state.user_role = "viewer"
+            st.rerun()
 
-def logout_user():
-    """Logout user"""
-    if st.session_state.session_token:
-        auth_manager.logout_user(st.session_state.session_token)
-    
-    for key in list(st.session_state.keys()):
-        if key != 'current_page':
-            del st.session_state[key]
-    
-    st.session_state.current_page = 'login'
-    st.rerun()
+def create_metrics_dashboard(df):
+    """Create comprehensive metrics dashboard"""
+    if df.empty:
+        return
 
-# PAGE FUNCTIONS
-def dashboard_page():
-    """Dashboard page"""
-    user = st.session_state.user_data
-    
-    st.markdown("## 📊 Analytics Dashboard")
-    
-    # Metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
+    st.subheader("Key Performance Indicators")
+
+    cols = st.columns(5)
+
+    with cols[0]:
+        avg_rating = df['score'].mean() if 'score' in df.columns else 0
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{avg_rating:.1f}</div>
+            <div class="metric-label">Average Rating</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with cols[1]:
+        total_reviews = len(df)
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{total_reviews:,}</div>
+            <div class="metric-label">Total Reviews</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with cols[2]:
+        if 'sentiment' in df.columns:
+            positive_rate = (df['sentiment'].str.contains('Positive', na=False).sum() / len(df)) * 100
+        else:
+            positive_rate = 0
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{positive_rate:.1f}%</div>
+            <div class="metric-label">Positive Rate</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with cols[3]:
+        if 'confidence' in df.columns:
+            avg_confidence = df['confidence'].mean() * 100
+        else:
+            avg_confidence = 0
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{avg_confidence:.1f}%</div>
+            <div class="metric-label">Analysis Confidence</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with cols[4]:
+        if 'emotional_intensity' in df.columns:
+            avg_intensity = abs(df['emotional_intensity'].mean())
+        else:
+            avg_intensity = 0
+        st.markdown(f"""
+        <div class="metric-card">
+            <div class="metric-value">{avg_intensity:.2f}</div>
+            <div class="metric-label">Emotional Intensity</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+def create_advanced_visualizations(df):
+    """Create advanced interactive visualizations"""
+    if df.empty:
+        return
+
+    # Color scheme
+    colors = {
+        'primary': '#2563eb',
+        'secondary': '#3b82f6',
+        'accent': '#1e40af',
+        'success': '#059669',
+        'warning': '#d97706',
+        'error': '#dc2626',
+        'positive': '#10b981',
+        'negative': '#ef4444',
+        'neutral': '#6b7280'
+    }
+
+    # 1. Enhanced Sentiment Distribution
+    col1, col2 = st.columns(2)
+
     with col1:
-        playstore_count = len(st.session_state.analyzed_data) if st.session_state.analyzed_data is not None else 0
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{playstore_count:,}</div>
-            <div class="metric-label">Play Store Reviews</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
+        if 'sentiment' in df.columns:
+            sentiment_counts = df['sentiment'].value_counts()
+
+            fig_donut = go.Figure(data=[go.Pie(
+                labels=sentiment_counts.index,
+                values=sentiment_counts.values,
+                hole=0.6,
+                marker=dict(
+                    colors=[colors['positive'] if 'Positive' in s else 
+                           colors['negative'] if 'Negative' in s else colors['neutral'] 
+                           for s in sentiment_counts.index]
+                ),
+                textinfo='label+percent+value',
+                textfont=dict(size=14),
+                hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
+            )])
+
+            fig_donut.update_layout(
+                title=dict(
+                    text='Sentiment Distribution Analysis',
+                    x=0.5,
+                    font=dict(size=20, color=colors['primary'])
+                ),
+                annotations=[dict(
+                    text=f'Total<br>{sentiment_counts.sum()}',
+                    x=0.5, y=0.5,
+                    font_size=16,
+                    showarrow=False
+                )],
+                showlegend=True,
+                height=400
+            )
+
+            st.plotly_chart(fig_donut, use_container_width=True)
+
     with col2:
-        competitive_count = user.get('competitive_analysis_count', 0)
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{competitive_count}</div>
-            <div class="metric-label">Competitive Analyses</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        premium_status = "Pro" if user.get('premium_access') else "Free"
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{premium_status}</div>
-            <div class="metric-label">Account Tier</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col4:
-        live_status = "Live" if user.get('live_notifications') else "Off"
-        st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value">{live_status}</div>
-            <div class="metric-label">Notifications</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Quick Actions
-    st.markdown("## 🚀 Quick Actions")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("#### 📱 Play Store Analysis")
-        st.write("Advanced sentiment analysis with professional sheet display")
-        if st.button("🔍 Analyze App", key="dash_playstore", use_container_width=True):
-            st.session_state.current_page = 'playstore'
-            st.rerun()
-    
-    with col2:
-        st.markdown("#### 🆚 Competitive Analysis")
-        st.write("Compare two apps side-by-side with AI scoring")
-        if st.button("⚔️ Compare Apps", key="dash_competitive", use_container_width=True):
-            st.session_state.current_page = 'competitive'
-            st.rerun()
-    
-    with col3:
-        st.markdown("#### 🔔 Live Notifications")
-        st.write("Setup real-time Slack/Discord notifications")
-        if st.button("📋 Setup Alerts", key="dash_notifications", use_container_width=True):
-            st.session_state.current_page = 'notifications'
-            st.rerun()
-    
-    # Recent Analysis
-    if st.session_state.analyzed_data is not None:
-        st.markdown("## 📈 Recent Analysis")
-        df = st.session_state.analyzed_data
-        app_name = st.session_state.get('current_app_name', 'App')
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.success(f"✅ {app_name} - {len(df):,} reviews analyzed")
-            if 'sentiment' in df.columns:
-                positive_rate = (df['sentiment'] == 'Positive').sum() / len(df) * 100
-                st.metric("Positive Sentiment", f"{positive_rate:.1f}%")
-        
-        with col2:
-            if 'sentiment' in df.columns:
-                sentiment_counts = df['sentiment'].value_counts()
-                fig = px.pie(
-                    values=sentiment_counts.values,
-                    names=sentiment_counts.index,
-                    title=f"Sentiment - {app_name}",
-                    color_discrete_map={
-                        'Positive': '#10B981',
-                        'Negative': '#EF4444',
-                        'Neutral': '#64748B'
-                    }
+        if 'score' in df.columns:
+            rating_dist = df['score'].value_counts().sort_index()
+
+            fig_rating = go.Figure()
+            fig_rating.add_trace(go.Bar(
+                x=[f'{i} Stars' for i in rating_dist.index],
+                y=rating_dist.values,
+                marker=dict(
+                    color=[colors['error'] if i <= 2 else 
+                          colors['warning'] if i == 3 else colors['success'] 
+                          for i in rating_dist.index]
+                ),
+                text=rating_dist.values,
+                textposition='outside',
+                hovertemplate='<b>%{x}</b><br>Count: %{y}<br>Percentage: %{y}<extra></extra>'
+            ))
+
+            fig_rating.update_layout(
+                title=dict(
+                    text='Rating Distribution',
+                    x=0.5,
+                    font=dict(size=20, color=colors['primary'])
+                ),
+                xaxis_title='Rating',
+                yaxis_title='Number of Reviews',
+                showlegend=False,
+                height=400
+            )
+
+            st.plotly_chart(fig_rating, use_container_width=True)
+
+    # 2. Emotional Intensity Heatmap
+    if all(col in df.columns for col in ['score', 'emotional_intensity']):
+        st.subheader("Emotional Intensity vs Rating Analysis")
+
+        intensity_by_rating = df.groupby('score')['emotional_intensity'].agg(['mean', 'std', 'count']).reset_index()
+
+        fig_intensity = go.Figure()
+
+        fig_intensity.add_trace(go.Scatter(
+            x=intensity_by_rating['score'],
+            y=intensity_by_rating['mean'],
+            mode='lines+markers',
+            name='Average Intensity',
+            line=dict(color=colors['primary'], width=3),
+            marker=dict(size=10),
+            error_y=dict(
+                type='data',
+                array=intensity_by_rating['std'],
+                visible=True
+            )
+        ))
+
+        fig_intensity.update_layout(
+            title='Emotional Intensity by Rating',
+            xaxis_title='Rating',
+            yaxis_title='Average Emotional Intensity',
+            height=400
+        )
+
+        st.plotly_chart(fig_intensity, use_container_width=True)
+
+    # 3. Aspect Analysis Radar Chart
+    aspect_cols = [col for col in df.columns if col.startswith('aspect_')]
+    if aspect_cols:
+        st.subheader("Aspect Analysis Overview")
+
+        aspect_data = {}
+        for col in aspect_cols:
+            aspect_name = col.replace('aspect_', '').replace('_', ' ').title()
+            aspect_data[aspect_name] = (df[col].sum() / len(df)) * 100
+
+        fig_radar = go.Figure()
+
+        fig_radar.add_trace(go.Scatterpolar(
+            r=list(aspect_data.values()),
+            theta=list(aspect_data.keys()),
+            fill='toself',
+            name='Aspect Coverage',
+            line=dict(color=colors['primary'])
+        ))
+
+        fig_radar.update_layout(
+            polar=dict(
+                radialaxis=dict(
+                    visible=True,
+                    range=[0, max(aspect_data.values()) * 1.1]
                 )
-                fig.update_layout(height=300)
-                st.plotly_chart(fig, use_container_width=True)
+            ),
+            title='Aspect Coverage Analysis',
+            height=500
+        )
 
-def playstore_analysis_page():
-    """Play Store analysis page"""
-    st.markdown("## 📱 Play Store Review Analysis")
-    
+        st.plotly_chart(fig_radar, use_container_width=True)
+
+def dashboard_page():
+    """Main dashboard page"""
+    create_header()
+
     # Input section
-    col1, col2, col3 = st.columns([3, 1, 1])
-    
+    st.subheader("Application Analysis Configuration")
+
+    col1, col2, col3 = st.columns([2, 1, 1])
+
     with col1:
         url_input = st.text_input(
-            "Play Store URL or Package Name",
+            "Google Play Store URL or Package Name",
             placeholder="https://play.google.com/store/apps/details?id=com.example.app",
-            help="🔍 Enter complete Play Store URL or package name"
+            help="Enter the full Google Play Store URL or just the package name"
         )
-    
+
     with col2:
-        review_count = st.selectbox("Reviews", [500, 1000, 2000], index=1)
-    
+        review_count = st.selectbox(
+            "Reviews to Analyze",
+            options=[100, 250, 500, 1000, 2000],
+            index=2,
+            help="More reviews provide better insights but take longer to process"
+        )
+
     with col3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        analyze_btn = st.button("🚀 Start Analysis", type="primary", use_container_width=True)
-    
-    # Examples
-    with st.expander("📖 Examples"):
-        st.code("com.whatsapp", language="text")
-        st.code("com.instagram.android", language="text")
-        st.code("https://play.google.com/store/apps/details?id=com.spotify.music", language="text")
-    
-    # Analysis execution
-    if analyze_btn:
+        sort_option = st.selectbox(
+            "Sort Reviews By",
+            options=["Newest", "Rating", "Helpfulness"],
+            help="Choose how to sort the reviews for analysis"
+        )
+
+    # Convert sort option
+    sort_mapping = {
+        "Newest": Sort.NEWEST,
+        "Rating": Sort.RATING,
+        "Helpfulness": Sort.MOST_RELEVANT
+    }
+
+    if st.button("Analyze Application", type="primary", use_container_width=True):
         if url_input:
             package_name = analyzer.extract_package_name(url_input)
-            
+
             if package_name:
-                df = analyzer.extract_playstore_reviews_enhanced(package_name, review_count)
-                
-                if not df.empty:
-                    st.session_state.analyzed_data = df
-                    st.session_state.current_app_name = analyzer.get_app_name(package_name)
-                    st.rerun()
-                else:
-                    st.error("❌ No reviews found")
+                with st.spinner("Performing advanced analysis..."):
+                    # Use cached version for better performance
+                    df = cached_scrape_reviews(
+                        package_name, 
+                        count=review_count, 
+                        sort_by=sort_mapping[sort_option]
+                    )
+
+                    if not df.empty:
+                        st.session_state.analyzed_data = df
+                        st.session_state.current_app_name = analyzer.get_app_name(package_name)
+                        st.success(f"Successfully analyzed {len(df)} reviews!")
+                    else:
+                        st.error("No reviews found or failed to extract reviews")
             else:
-                st.error("❌ Invalid URL format")
+                st.error("Invalid URL or package name format")
         else:
-            st.warning("⚠️ Please enter URL or package name")
-    
+            st.warning("Please enter a valid Google Play Store URL or package name")
+
     # Display results
     if st.session_state.analyzed_data is not None:
         df = st.session_state.analyzed_data
-        app_name = st.session_state.get('current_app_name', 'App')
-        
+
         st.markdown("---")
-        st.markdown(f"## 📊 Analysis Results: {app_name}")
-        
-        # Enhanced metrics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-value">{len(df):,}</div>
-                <div class="metric-label">Total Reviews</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col2:
-            avg_rating = df['score'].mean() if 'score' in df.columns else 0
-            st.markdown(f"""
-            <div class="metric-card">
-                <div class="metric-value">{avg_rating:.1f}⭐</div>
-                <div class="metric-label">Average Rating</div>
-            </div>
-            """, unsafe_allow_html=True)
-        
-        with col3:
-            if 'sentiment' in df.columns:
-                positive_rate = (df['sentiment'] == 'Positive').sum() / len(df) * 100
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-value">{positive_rate:.1f}%</div>
-                    <div class="metric-label">Positive Reviews</div>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        with col4:
-            if 'confidence' in df.columns:
-                avg_confidence = df['confidence'].mean() * 100
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div class="metric-value">{avg_confidence:.0f}%</div>
-                    <div class="metric-label">AI Confidence</div>
-                </div>
-                """, unsafe_allow_html=True)
-        
-        # Charts
-        st.markdown("### 📈 Analytics Charts")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if 'sentiment' in df.columns:
-                sentiment_counts = df['sentiment'].value_counts()
-                fig = px.pie(
-                    values=sentiment_counts.values,
-                    names=sentiment_counts.index,
-                    title="Sentiment Distribution",
-                    color_discrete_map={
-                        'Positive': '#10B981',
-                        'Negative': '#EF4444',
-                        'Neutral': '#64748B'
-                    }
+        st.subheader(f"Analysis Results: {st.session_state.get('current_app_name', 'Unknown App')}")
+
+        # Metrics dashboard
+        create_metrics_dashboard(df)
+
+        # Visualizations
+        create_advanced_visualizations(df)
+
+        # Recent reviews table
+        st.subheader("Recent Reviews Sample")
+        display_columns = ['at', 'userName', 'score', 'sentiment', 'confidence', 'content']
+        available_columns = [col for col in display_columns if col in df.columns]
+
+        if available_columns:
+            sample_df = df[available_columns].head(10).copy()
+            if 'at' in sample_df.columns:
+                sample_df['at'] = pd.to_datetime(sample_df['at']).dt.strftime('%Y-%m-%d')
+            if 'content' in sample_df.columns:
+                sample_df['content'] = sample_df['content'].str[:100] + '...'
+
+            st.dataframe(sample_df, use_container_width=True, hide_index=True)
+
+def deep_analysis_page():
+    """Deep analysis page with advanced features"""
+    st.title("Deep Analysis Engine")
+    st.markdown("Advanced analytical tools and machine learning insights")
+
+    if st.session_state.analyzed_data is not None:
+        df = st.session_state.analyzed_data
+
+        # Generate ML insights if not already done
+        if 'ml_insights' not in st.session_state or not st.session_state.ml_insights:
+            with st.spinner("Generating machine learning insights..."):
+                # Use cached version for better performance
+                ml_insights = cached_generate_ml_insights(df)
+                st.session_state.ml_insights = ml_insights
+
+        ml_insights = st.session_state.ml_insights
+
+        # Topic Analysis
+        st.subheader("Topic Modeling Analysis")
+        if 'topics' in ml_insights and ml_insights['topics']:
+            topics_data = []
+            for topic in ml_insights['topics']:
+                topics_data.append({
+                    'Topic ID': topic['topic_id'],
+                    'Keywords': ', '.join(topic['keywords'][:5]),
+                    'Relevance Score': f"{topic['weight']:.3f}"
+                })
+
+            topics_df = pd.DataFrame(topics_data)
+            st.dataframe(topics_df, use_container_width=True, hide_index=True)
+
+            # Topic visualization
+            if len(ml_insights['topics']) > 1:
+                topic_weights = [topic['weight'] for topic in ml_insights['topics']]
+                topic_labels = [f"Topic {topic['topic_id']}" for topic in ml_insights['topics']]
+
+                fig_topics = go.Figure(data=[go.Bar(
+                    x=topic_labels,
+                    y=topic_weights,
+                    marker_color='rgba(37, 99, 235, 0.7)'
+                )])
+
+                fig_topics.update_layout(
+                    title='Topic Importance Distribution',
+                    xaxis_title='Topics',
+                    yaxis_title='Relevance Score',
+                    height=400
                 )
-                fig.update_layout(height=350)
-                st.plotly_chart(fig, use_container_width=True)
-        
-        with col2:
-            if 'score' in df.columns:
-                rating_counts = df['score'].value_counts().sort_index()
-                fig = px.bar(
-                    x=rating_counts.index,
-                    y=rating_counts.values,
-                    title="Rating Distribution",
-                    labels={'x': 'Stars', 'y': 'Count'},
-                    color=rating_counts.values,
-                    color_continuous_scale='viridis'
-                )
-                fig.update_layout(height=350)
-                st.plotly_chart(fig, use_container_width=True)
-        
-        # Professional Sheet Display
-        st.markdown("### 📋 Professional Review Sheet")
-        data_sheet.create_review_sheet(df, app_name, max_rows=100)
-        
-        # Export options
-        st.markdown("### 💾 Export Options")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            csv_data = df.to_csv(index=False)
-            st.download_button(
-                "📊 Download CSV",
-                csv_data,
-                f"{app_name}_analysis.csv",
-                "text/csv",
-                use_container_width=True
-            )
-        
-        with col2:
-            excel_buffer = BytesIO()
-            df.to_excel(excel_buffer, index=False, engine='openpyxl')
-            st.download_button(
-                "📈 Download Excel",
-                excel_buffer.getvalue(),
-                f"{app_name}_analysis.xlsx",
-                use_container_width=True
-            )
-        
-        with col3:
-            summary_data = {
-                'app_name': app_name,
-                'total_reviews': len(df),
-                'average_rating': round(df['score'].mean(), 2) if 'score' in df.columns else 0,
-                'sentiment_breakdown': df['sentiment'].value_counts().to_dict() if 'sentiment' in df.columns else {},
-                'analysis_date': datetime.now().isoformat()
-            }
-            
-            summary_json = json.dumps(summary_data, indent=2)
-            st.download_button(
-                "📋 Download Report",
-                summary_json,
-                f"{app_name}_report.json",
-                "application/json",
-                use_container_width=True
+
+                st.plotly_chart(fig_topics, use_container_width=True)
+
+        # Key Phrases Analysis
+        st.subheader("Key Phrases Extraction")
+        if 'key_phrases' in ml_insights and ml_insights['key_phrases']:
+            phrases_data = []
+            for phrase_data in ml_insights['key_phrases'][:10]:
+                phrases_data.append({
+                    'Phrase': phrase_data['phrase'],
+                    'Frequency': phrase_data['frequency'],
+                    'Relevance': 'High' if phrase_data['frequency'] > 5 else 'Medium'
+                })
+
+            phrases_df = pd.DataFrame(phrases_data)
+            st.dataframe(phrases_df, use_container_width=True, hide_index=True)
+
+        # Correlation Analysis
+        st.subheader("Advanced Correlation Analysis")
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 1:
+            corr_matrix = df[numeric_cols].corr()
+
+            fig_corr = px.imshow(
+                corr_matrix,
+                text_auto=True,
+                aspect="auto",
+                title="Feature Correlation Matrix",
+                color_continuous_scale='RdBu_r'
             )
 
-def competitive_analysis_page():
-    """Competitive analysis page"""
-    user = st.session_state.user_data
-    
-    st.markdown("## 🆚 Competitive Analysis")
-    st.markdown("Compare two apps side-by-side with advanced AI analysis")
-    
-    # Input section
-    col1, col2, col3 = st.columns([5, 1, 5])
-    
+            st.plotly_chart(fig_corr, use_container_width=True)
+    else:
+        st.info("Please analyze an application first from the Dashboard page to access deep analysis features.")
+
+def competitor_analysis_page():
+    """Competitive intelligence page"""
+    st.title("Competitive Intelligence")
+    st.markdown("Compare your app against competitors with advanced benchmarking")
+
+    col1, col2 = st.columns(2)
+
     with col1:
-        st.markdown("### 📱 First App")
-        app1_input = st.text_input(
-            "App 1 URL/Package",
-            placeholder="com.whatsapp or Play Store URL",
-            help="Enter package name or Play Store URL"
-        )
-    
-    with col2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown('<div class="battle-vs">VS</div>', unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown("### 📱 Second App")
-        app2_input = st.text_input(
-            "App 2 URL/Package", 
-            placeholder="com.instagram.android or Play Store URL",
-            help="Enter package name or Play Store URL"
-        )
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        review_count = st.selectbox("Reviews per App", [300, 500, 1000], index=1)
-    
-    with col2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        start_comparison = st.button("⚔️ Start Battle", type="primary", use_container_width=True)
-    
-    with col3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💡 Examples", use_container_width=True):
-            st.info("WhatsApp vs Telegram: com.whatsapp vs com.telegram.messenger")
-    
-    # Execute comparison
-    if start_comparison:
-        if app1_input and app2_input:
-            package1 = analyzer.extract_package_name(app1_input)
-            package2 = analyzer.extract_package_name(app2_input)
-            
-            if package1 and package2:
-                if package1 != package2:
-                    df1, df2, comparison_data = analyzer.competitive_analysis(package1, package2, review_count)
-                    
-                    if df1 is not None and df2 is not None and comparison_data is not None:
-                        st.session_state.competitive_data = comparison_data
-                        st.session_state.analyzed_data = df1
-                        
-                        # Update competitive count
-                        try:
-                            conn = auth_manager.get_connection()
-                            cursor = conn.cursor()
-                            cursor.execute(
-                                'UPDATE users SET competitive_analysis_count = competitive_analysis_count + 1 WHERE id = ?',
-                                (user['id'],)
-                            )
-                            conn.commit()
-                            conn.close()
-                        except:
-                            pass
-                        
-                        st.rerun()
-                else:
-                    st.error("❌ Please enter different apps")
-            else:
-                st.error("❌ Invalid package names")
+        st.subheader("Primary App Analysis")
+        if st.session_state.analyzed_data is not None:
+            st.success(f"Ã¢Å“â€œ {st.session_state.get('current_app_name', 'App')} analyzed")
+            df_primary = st.session_state.analyzed_data
+
+            # Primary app metrics
+            if 'score' in df_primary.columns:
+                avg_rating = df_primary['score'].mean()
+                st.metric("Average Rating", f"{avg_rating:.1f}")
+
+            if 'sentiment' in df_primary.columns:
+                positive_rate = (df_primary['sentiment'].str.contains('Positive', na=False).sum() / len(df_primary)) * 100
+                st.metric("Positive Sentiment", f"{positive_rate:.1f}%")
         else:
-            st.warning("⚠️ Please enter both apps")
-    
-    # Display results
-    if st.session_state.competitive_data is not None:
-        comp_data = st.session_state.competitive_data
-        
-        st.markdown("---")
-        st.markdown("## 🏆 Battle Results")
-        
-        # Winner announcement
-        st.success(f"🎉 **Winner: {comp_data['winner']}** with {comp_data['confidence']:.1f}% confidence!")
-        
-        # Battle cards
-        col1, col2, col3 = st.columns([2, 1, 2])
-        
-        with col1:
-            st.markdown(f"### 📱 {comp_data['app1_name']}")
-            st.markdown(f"**Score: {comp_data['app1_score']}/100**")
-            
-            metrics1 = comp_data['app1_metrics']
-            st.metric("Average Rating", f"{metrics1['avg_rating']}⭐")
-            st.metric("Positive Reviews", f"{metrics1['positive_rate']}%")
-            st.metric("Total Reviews", f"{metrics1['total_reviews']:,}")
-        
-        with col2:
-            st.markdown('<div class="battle-vs">🏆</div>', unsafe_allow_html=True)
-        
-        with col3:
-            st.markdown(f"### 📱 {comp_data['app2_name']}")
-            st.markdown(f"**Score: {comp_data['app2_score']}/100**")
-            
-            metrics2 = comp_data['app2_metrics']
-            st.metric("Average Rating", f"{metrics2['avg_rating']}⭐")
-            st.metric("Positive Reviews", f"{metrics2['positive_rate']}%")
-            st.metric("Total Reviews", f"{metrics2['total_reviews']:,}")
-        
-        # Comparison charts
-        st.markdown("### 📊 Detailed Comparison")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            fig_ratings = go.Figure(data=[
-                go.Bar(name=comp_data['app1_name'], x=['Rating'], y=[metrics1['avg_rating']], marker_color='#3B82F6'),
-                go.Bar(name=comp_data['app2_name'], x=['Rating'], y=[metrics2['avg_rating']], marker_color='#EF4444')
-            ])
-            fig_ratings.update_layout(title="Rating Comparison", height=300)
-            st.plotly_chart(fig_ratings, use_container_width=True)
-        
-        with col2:
-            fig_sentiment = go.Figure(data=[
-                go.Bar(name=comp_data['app1_name'], x=['Positive %'], y=[metrics1['positive_rate']], marker_color='#10B981'),
-                go.Bar(name=comp_data['app2_name'], x=['Positive %'], y=[metrics2['positive_rate']], marker_color='#F59E0B')
-            ])
-            fig_sentiment.update_layout(title="Sentiment Comparison", height=300)
-            st.plotly_chart(fig_sentiment, use_container_width=True)
-        
-        # Export comparison
-        st.markdown("### 💾 Export Battle Report")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            report_data = json.dumps(comp_data, indent=2, default=str)
-            st.download_button(
-                "📊 Download Battle Report",
-                report_data,
-                f"{comp_data['app1_name']}_vs_{comp_data['app2_name']}_battle.json",
-                "application/json",
-                use_container_width=True
-            )
-        
-        with col2:
-            if st.button("🔄 New Battle", use_container_width=True):
-                st.session_state.competitive_data = None
-                st.rerun()
+            st.info("Analyze your primary app first")
 
-def notifications_page():
-    """Notifications setup page"""
-    st.markdown("## 🔔 Live Notification Center")
-    st.write("Setup real-time notifications for analysis completion")
-    
-    st.info("🚧 Slack & Discord integration coming soon!")
-    st.write("**Features will include:**")
-    st.write("- Real-time analysis completion alerts")
-    st.write("- Professional formatted messages")
-    st.write("- Custom webhook integration")
-    st.write("- Team collaboration features")
+    with col2:
+        st.subheader("Competitor App")
+        competitor_url = st.text_input(
+            "Competitor App URL",
+            placeholder="Enter competitor's Google Play URL"
+        )
+
+        if st.button("Analyze Competitor", use_container_width=True):
+            if competitor_url:
+                package_name = analyzer.extract_package_name(competitor_url)
+
+                if package_name:
+                    with st.spinner("Analyzing competitor..."):
+                        # Use cached version for better performance
+                        competitor_df = cached_scrape_reviews(package_name, count=500)
+
+                        if not competitor_df.empty:
+                            st.session_state.competitor_data = competitor_df
+                            st.session_state.competitor_app_name = analyzer.get_app_name(package_name)
+                            st.success("Competitor analyzed successfully!")
+                        else:
+                            st.error("Failed to analyze competitor")
+                else:
+                    st.error("Invalid competitor URL")
+
+    # Comparative Analysis
+    if (st.session_state.analyzed_data is not None and 
+        st.session_state.competitor_data is not None):
+
+        st.markdown("---")
+        st.subheader("Comparative Analysis Dashboard")
+
+        df_primary = st.session_state.analyzed_data
+        df_competitor = st.session_state.competitor_data
+
+        # Side-by-side metrics
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("### Rating Comparison")
+            primary_rating = df_primary['score'].mean() if 'score' in df_primary.columns else 0
+            competitor_rating = df_competitor['score'].mean() if 'score' in df_competitor.columns else 0
+
+            comparison_data = pd.DataFrame({
+                'App': [st.session_state.get('current_app_name', 'Your App'), 
+                       st.session_state.get('competitor_app_name', 'Competitor')],
+                'Rating': [primary_rating, competitor_rating]
+            })
+
+            fig_rating_comp = px.bar(
+                comparison_data,
+                x='App',
+                y='Rating',
+                title='Average Rating Comparison',
+                color='Rating',
+                color_continuous_scale='RdYlGn'
+            )
+
+            st.plotly_chart(fig_rating_comp, use_container_width=True)
+
+        with col2:
+            st.markdown("### Sentiment Comparison")
+            if all('sentiment' in df.columns for df in [df_primary, df_competitor]):
+                primary_positive = (df_primary['sentiment'].str.contains('Positive', na=False).sum() / len(df_primary)) * 100
+                competitor_positive = (df_competitor['sentiment'].str.contains('Positive', na=False).sum() / len(df_competitor)) * 100
+
+                sentiment_data = pd.DataFrame({
+                    'App': [st.session_state.get('current_app_name', 'Your App'), 
+                           st.session_state.get('competitor_app_name', 'Competitor')],
+                    'Positive Sentiment %': [primary_positive, competitor_positive]
+                })
+
+                fig_sentiment_comp = px.bar(
+                    sentiment_data,
+                    x='App',
+                    y='Positive Sentiment %',
+                    title='Positive Sentiment Comparison',
+                    color='Positive Sentiment %',
+                    color_continuous_scale='RdYlGn'
+                )
+
+                st.plotly_chart(fig_sentiment_comp, use_container_width=True)
+
+        with col3:
+            st.markdown("### Review Volume")
+            volume_data = pd.DataFrame({
+                'App': [st.session_state.get('current_app_name', 'Your App'), 
+                       st.session_state.get('competitor_app_name', 'Competitor')],
+                'Review Count': [len(df_primary), len(df_competitor)]
+            })
+
+            fig_volume_comp = px.bar(
+                volume_data,
+                x='App',
+                y='Review Count',
+                title='Review Volume Comparison',
+                color='Review Count',
+                color_continuous_scale='Blues'
+            )
+
+            st.plotly_chart(fig_volume_comp, use_container_width=True)
+
+        # Detailed comparison table
+        st.subheader("Detailed Comparison Matrix")
+
+        comparison_metrics = {
+            'Metric': ['Average Rating', 'Total Reviews', 'Positive Sentiment %', 'Average Confidence', 'Emotional Intensity'],
+            st.session_state.get('current_app_name', 'Your App'): [
+                f"{df_primary['score'].mean():.2f}" if 'score' in df_primary.columns else 'N/A',
+                len(df_primary),
+                f"{(df_primary['sentiment'].str.contains('Positive', na=False).sum() / len(df_primary)) * 100:.1f}%" if 'sentiment' in df_primary.columns else 'N/A',
+                f"{df_primary['confidence'].mean() * 100:.1f}%" if 'confidence' in df_primary.columns else 'N/A',
+                f"{abs(df_primary['emotional_intensity'].mean()):.2f}" if 'emotional_intensity' in df_primary.columns else 'N/A'
+            ],
+            st.session_state.get('competitor_app_name', 'Competitor'): [
+                f"{df_competitor['score'].mean():.2f}" if 'score' in df_competitor.columns else 'N/A',
+                len(df_competitor),
+                f"{(df_competitor['sentiment'].str.contains('Positive', na=False).sum() / len(df_competitor)) * 100:.1f}%" if 'sentiment' in df_competitor.columns else 'N/A',
+                f"{df_competitor['confidence'].mean() * 100:.1f}%" if 'confidence' in df_competitor.columns else 'N/A',
+                f"{abs(df_competitor['emotional_intensity'].mean()):.2f}" if 'emotional_intensity' in df_competitor.columns else 'N/A'
+            ]
+        }
+
+        comparison_df = pd.DataFrame(comparison_metrics)
+        st.dataframe(comparison_df, use_container_width=True, hide_index=True)
+
+def trend_analysis_page():
+    """Time series analysis page"""
+    st.title("Trend Analysis")
+    st.markdown("Analyze how reviews and ratings change over time")
+
+    if st.session_state.analyzed_data is not None:
+        df = st.session_state.analyzed_data
+        
+        # Generate trend analysis
+        trends = analyzer.analyze_trends(df)
+        
+        if trends:
+            st.subheader("Rating Trends Over Time")
+            
+            # Daily trends chart
+            daily_data = trends['daily'].reset_index()
+            
+            fig_daily = px.line(
+                daily_data, 
+                x='date', 
+                y='avg_rating',
+                title='Daily Average Rating Trend',
+                labels={'date': 'Date', 'avg_rating': 'Average Rating'}
+            )
+            
+            fig_daily.add_scatter(
+                x=daily_data['date'],
+                y=[daily_data['avg_rating'].mean()] * len(daily_data),
+                mode='lines',
+                name='Overall Average',
+                line=dict(dash='dash', color='red')
+            )
+            
+            st.plotly_chart(fig_daily, use_container_width=True)
+            
+            # Review volume over time
+            st.subheader("Review Volume Over Time")
+            
+            fig_volume = px.bar(
+                daily_data,
+                x='date',
+                y='review_count',
+                title='Daily Review Volume',
+                labels={'date': 'Date', 'review_count': 'Number of Reviews'}
+            )
+            
+            st.plotly_chart(fig_volume, use_container_width=True)
+            
+            # Weekly trends
+            st.subheader("Weekly Trends")
+            
+            weekly_data = trends['weekly'].reset_index()
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                fig_weekly_rating = px.line(
+                    weekly_data,
+                    x='week',
+                    y='avg_rating',
+                    title='Weekly Average Rating',
+                    labels={'week': 'Week', 'avg_rating': 'Average Rating'}
+                )
+                st.plotly_chart(fig_weekly_rating, use_container_width=True)
+                
+            with col2:
+                fig_weekly_volume = px.bar(
+                    weekly_data,
+                    x='week',
+                    y='review_count',
+                    title='Weekly Review Volume',
+                    labels={'week': 'Week', 'review_count': 'Number of Reviews'}
+                )
+                st.plotly_chart(fig_weekly_volume, use_container_width=True)
+                
+            # Correlation between review volume and rating
+            st.subheader("Volume vs Rating Correlation")
+            
+            correlation = daily_data['review_count'].corr(daily_data['avg_rating'])
+            
+            st.metric("Correlation Coefficient", f"{correlation:.3f}")
+            
+            if correlation > 0.3:
+                st.info("Positive correlation: More reviews tend to coincide with higher ratings")
+            elif correlation < -0.3:
+                st.info("Negative correlation: More reviews tend to coincide with lower ratings")
+            else:
+                st.info("Weak correlation: Review volume and rating are not strongly related")
+                
+        else:
+            st.warning("Insufficient data for trend analysis. Need reviews with timestamps.")
+    else:
+        st.info("Please analyze an application first to access trend analysis.")
 
 def settings_page():
-    """Settings page"""
-    user = st.session_state.user_data
-    
-    st.markdown("## ⚙️ Settings & Configuration")
-    
-    tab1, tab2 = st.tabs(["👤 Account", "🔧 System"])
-    
-    with tab1:
-        st.markdown("#### Account Information")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.text_input("Username", value=user['username'], disabled=True)
-            st.text_input("Role", value=user['role'].title(), disabled=True)
-        
-        with col2:
-            st.text_input("Email", value=user['email'], disabled=True)
-            premium_status = "Active" if user.get('premium_access') else "Standard"
-            st.text_input("Account Type", value=premium_status, disabled=True)
-        
-        st.markdown("#### Usage Statistics")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            playstore_analyses = 1 if st.session_state.analyzed_data is not None else 0
-            st.metric("Play Store Analyses", playstore_analyses)
-        
-        with col2:
-            competitive_count = user.get('competitive_analysis_count', 0)
-            st.metric("Competitive Analyses", competitive_count)
-        
-        with col3:
-            total_reviews = len(st.session_state.analyzed_data) if st.session_state.analyzed_data is not None else 0
-            st.metric("Total Reviews Analyzed", f"{total_reviews:,}")
-    
-    with tab2:
-        st.markdown("#### System Information")
-        
-        system_info = {
-            "Application": "ReviewForge Analytics Pro",
-            "Version": "2.0.0 Professional Edition",
-            "Platform": "Streamlit Application",
-            "Database": "SQLite Professional",
-            "Current Time": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            "Session": "Active" if st.session_state.session_token else "Inactive"
-        }
-        
-        for key, value in system_info.items():
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.markdown(f"**{key}:**")
-            with col2:
-                st.markdown(value)
+    """Advanced settings and preferences"""
+    st.title("Advanced Settings")
+    st.markdown("Customize your analysis preferences and export options")
 
-# MAIN APPLICATION
+    # Analysis Settings
+    st.subheader("Analysis Configuration")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("#### Sentiment Analysis Settings")
+        sentiment_threshold = st.slider("Sentiment Confidence Threshold", 0.0, 1.0, 0.6, 0.1)
+        enable_aspect_analysis = st.checkbox("Enable Aspect-Based Analysis", value=True)
+        enable_emotion_detection = st.checkbox("Enable Emotional Intensity Analysis", value=True)
+
+    with col2:
+        st.markdown("#### Machine Learning Settings")
+        enable_topic_modeling = st.checkbox("Enable Topic Modeling", value=True)
+        topic_count = st.slider("Number of Topics", 3, 10, 5)
+        enable_clustering = st.checkbox("Enable Review Clustering", value=True)
+
+    # Export Settings
+    st.subheader("Export & Reporting")
+
+    export_format = st.selectbox(
+        "Preferred Export Format",
+        options=["CSV", "Excel", "JSON", "PDF Report"],
+        index=0
+    )
+
+    include_raw_data = st.checkbox("Include Raw Review Data", value=True)
+    include_visualizations = st.checkbox("Include Charts and Visualizations", value=True)
+
+    # Save settings
+    if st.button("Save Settings", type="primary"):
+        settings = {
+            'sentiment_threshold': sentiment_threshold,
+            'enable_aspect_analysis': enable_aspect_analysis,
+            'enable_emotion_detection': enable_emotion_detection,
+            'enable_topic_modeling': enable_topic_modeling,
+            'topic_count': topic_count,
+            'enable_clustering': enable_clustering,
+            'export_format': export_format,
+            'include_raw_data': include_raw_data,
+            'include_visualizations': include_visualizations
+        }
+        st.session_state.user_preferences = settings
+        st.success("Settings saved successfully!")
+
+    # System Information
+    st.subheader("System Information")
+
+    system_info = {
+        'Application Version': '2.0.0 Pro',
+        'Developer': 'Ayush Pandey',
+        'Last Updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'Python Version': '3.9+',
+        'Streamlit Version': st.__version__ if hasattr(st, '__version__') else 'Latest',
+        'Analysis Engine': 'Advanced ML-Powered'
+    }
+
+    for key, value in system_info.items():
+        st.text(f"{key}: {value}")
+
+def export_reports_page():
+    """Export and reporting functionality"""
+    st.title("Export & Reporting")
+    st.markdown("Generate comprehensive reports and export your analysis data")
+
+    if st.session_state.analyzed_data is not None:
+        df = st.session_state.analyzed_data
+        app_name = st.session_state.get('current_app_name', 'Unknown App')
+
+        st.subheader(f"Export Options for {app_name}")
+
+        # Export format selection
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button("Export as CSV", use_container_width=True):
+                csv_data = df.to_csv(index=False)
+                st.download_button(
+                    label="Download CSV Report",
+                    data=csv_data,
+                    file_name=f"{app_name}_analysis_{datetime.now().strftime('%Y%m%d')}.csv",
+                    mime="text/csv"
+                )
+
+        with col2:
+            if st.button("Export as Excel", use_container_width=True):
+                try:
+                    excel_buffer = BytesIO()
+                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                        df.to_excel(writer, sheet_name='Analysis Results', index=False)
+
+                        # Add summary sheet if we have sentiment data
+                        if 'sentiment' in df.columns:
+                            summary_data = {
+                                'Metric': ['Total Reviews', 'Average Rating', 'Positive Sentiment %', 'Negative Sentiment %'],
+                                'Value': [
+                                    len(df),
+                                    f"{df['score'].mean():.2f}" if 'score' in df.columns else 'N/A',
+                                    f"{(df['sentiment'].str.contains('Positive', na=False).sum() / len(df)) * 100:.1f}%",
+                                    f"{(df['sentiment'].str.contains('Negative', na=False).sum() / len(df)) * 100:.1f}%"
+                                ]
+                            }
+                            summary_df = pd.DataFrame(summary_data)
+                            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+                    excel_data = excel_buffer.getvalue()
+                    st.download_button(
+                        label="Download Excel Report",
+                        data=excel_data,
+                        file_name=f"{app_name}_analysis_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                except Exception as e:
+                    st.error(f"Error creating Excel file: {str(e)}")
+
+        with col3:
+            if st.button("Export as JSON", use_container_width=True):
+                json_data = df.to_json(orient='records', date_format='iso')
+                st.download_button(
+                    label="Download JSON Data",
+                    data=json_data,
+                    file_name=f"{app_name}_analysis_{datetime.now().strftime('%Y%m%d')}.json",
+                    mime="application/json"
+                )
+
+        # Quick preview of export data
+        st.subheader("Export Preview")
+
+        export_columns = st.multiselect(
+            "Select columns to include in export",
+            options=df.columns.tolist(),
+            default=[col for col in ['at', 'userName', 'score', 'sentiment', 'confidence', 'content'] 
+                    if col in df.columns]
+        )
+
+        if export_columns:
+            preview_df = df[export_columns].head(10)
+            st.dataframe(preview_df, use_container_width=True, hide_index=True)
+
+            st.info(f"Preview showing first 10 rows. Full export will contain {len(df)} rows.")
+
+        # Generate comprehensive report
+        st.subheader("Comprehensive Analysis Report")
+
+        if st.button("Generate Full Report", type="primary"):
+            with st.spinner("Generating comprehensive report..."):
+                report_content = f"""
+# {app_name} - Analysis Report
+Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Developed by: Ayush Pandey - ReviewForge Analytics Pro
+
+## Executive Summary
+- **Total Reviews Analyzed:** {len(df):,}
+- **Analysis Period:** {df['at'].min() if 'at' in df.columns else 'N/A'} to {df['at'].max() if 'at' in df.columns else 'N/A'}
+- **Average Rating:** {df['score'].mean():.2f} / 5.0 ({df['score'].std():.2f} std dev)
+- **Sentiment Distribution:**
+  - Positive: {(df['sentiment'].str.contains('Positive', na=False).sum() / len(df)) * 100:.1f}%
+  - Neutral: {(df['sentiment'].str.contains('Neutral', na=False).sum() / len(df)) * 100:.1f}%
+  - Negative: {(df['sentiment'].str.contains('Negative', na=False).sum() / len(df)) * 100:.1f}%
+
+## Key Insights
+- **Analysis Confidence:** {df['confidence'].mean() * 100:.1f}% average confidence
+- **Emotional Intensity:** {abs(df['emotional_intensity'].mean()):.2f} average intensity
+- **Most Common Rating:** {df['score'].mode().iloc[0] if 'score' in df.columns and not df['score'].mode().empty else 'N/A'} stars
+
+## Recommendations
+Based on the analysis of {len(df):,} reviews, the following strategic recommendations are suggested:
+
+1. **Performance Optimization:** {'Focus on addressing performance issues mentioned in reviews' if any(df['content'].str.contains('slow|lag|crash', case=False, na=False)) else 'Current performance appears satisfactory based on user feedback'}
+
+2. **User Experience:** {'Consider UI/UX improvements based on user feedback patterns' if any(df['content'].str.contains('interface|design|ui', case=False, na=False)) else 'User interface receives positive feedback overall'}
+
+3. **Feature Development:** {'Users are requesting additional features - consider feature roadmap expansion' if any(df['content'].str.contains('feature|add|need', case=False, na=False)) else 'Current feature set appears to meet user expectations'}
+
+---
+*Report generated by ReviewForge Analytics Pro - Advanced Review Analysis Platform*
+*Developer: Ayush Pandey*
+                """
+
+                st.markdown(report_content)
+
+                st.download_button(
+                    label="Download Full Report (Markdown)",
+                    data=report_content,
+                    file_name=f"{app_name}_full_report_{datetime.now().strftime('%Y%m%d')}.md",
+                    mime="text/markdown"
+                )
+    else:
+        st.info("Please analyze an application first to access export functionality.")
+
+# Main application logic
 def main():
     """Main application controller"""
-    try:
-        # Authentication check
-        if st.session_state.current_page == 'login' or not check_authentication():
-            show_login()
-            return
-        
-        # Create UI components
-        create_header()
-        create_navigation()
-        create_sidebar()
-        
-        # Route to pages
-        if st.session_state.current_page == 'dashboard':
-            dashboard_page()
-        elif st.session_state.current_page == 'playstore':
-            playstore_analysis_page()
-        elif st.session_state.current_page == 'competitive':
-            competitive_analysis_page()
-        elif st.session_state.current_page == 'notifications':
-            notifications_page()
-        elif st.session_state.current_page == 'settings':
-            settings_page()
-        else:
-            st.session_state.current_page = 'dashboard'
-            st.rerun()
-        
-    except Exception as e:
-        st.error(f"⚠️ Application error: {str(e)}")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("🏠 Return to Dashboard", use_container_width=True):
-                st.session_state.current_page = 'dashboard'
-                st.rerun()
-        
-        with col2:
-            if st.button("🚪 Logout", use_container_width=True):
-                logout_user()
+    create_navigation()
+
+    # Page routing
+    if st.session_state.current_page == 'dashboard':
+        dashboard_page()
+    elif st.session_state.current_page == 'deep_analysis':
+        deep_analysis_page()
+    elif st.session_state.current_page == 'competitor':
+        competitor_analysis_page()
+    elif st.session_state.current_page == 'ml_insights':
+        deep_analysis_page()  # Reuse deep analysis for ML insights
+    elif st.session_state.current_page == 'trend_analysis':
+        trend_analysis_page()
+    elif st.session_state.current_page == 'export_reports':
+        export_reports_page()
+    elif st.session_state.current_page == 'settings':
+        settings_page()
+
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style="text-align: center; color: #64748b; margin-top: 2rem;">
+        <p><strong>ReviewForge Analytics Pro</strong> - Advanced AI-Powered Review Analysis Platform</p>
+        <p>Developed by <strong>Ayush Pandey</strong> | Version 2.0.0 Pro | Ã‚Â© 2024</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
